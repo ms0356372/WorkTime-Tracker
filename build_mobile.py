@@ -313,6 +313,7 @@ def validate_generated_gradle_dependencies() -> None:
     )
 
 
+
 def doctor() -> int:
     """Report prerequisites without rejecting Briefcase-managed Java or Android SDK."""
     validate_configuration()
