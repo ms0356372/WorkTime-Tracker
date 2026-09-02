@@ -74,6 +74,8 @@ def build_configuration_check() -> None:
     assert app["sources"] == ["src/worktime_tracker"]
     app_source = (ROOT / "src/worktime_tracker/app.py").read_text(encoding="utf-8")
     if "toga.OptionContainer" in app_source:
+        if "tabs.content" in app_source:
+            raise RuntimeError("OptionContainer content must be passed to its constructor")
         android_dependencies = app["android"].get("build_gradle_dependencies", [])
         if MATERIAL_DEPENDENCY not in android_dependencies:
             raise RuntimeError(f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}")
