@@ -30,12 +30,6 @@ class WorkRecordRepository:
             int(r.overnight),
         )
         with self.db.transaction() as con:
-            if r.id:
-                con.execute(
-                    "UPDATE work_records SET work_date=?,clock_in=?,clock_out=?,break_start=?,break_end=?,deduct_break=?,standard_minutes=?,note=?,workday_type=?,overnight=? WHERE id=?",
-                    values + (r.id,),
-                )
-                return r.id
             existing = con.execute(
                 "SELECT id FROM work_records WHERE work_date=?",
                 (r.work_date.isoformat(),),
@@ -43,10 +37,11 @@ class WorkRecordRepository:
             if existing:
                 r.id = existing[0]
                 con.execute(
-                    "UPDATE work_records SET clock_in=?,clock_out=?,break_start=?,break_end=?,deduct_break=?,standard_minutes=?,note=?,workday_type=?,overnight=? WHERE id=?",
-                    values[1:] + (r.id,),
+                    "UPDATE work_records SET clock_in=?,clock_out=?,break_start=?,break_end=?,deduct_break=?,standard_minutes=?,note=?,workday_type=?,overnight=? WHERE work_date=?",
+                    values[1:] + (r.work_date.isoformat(),),
                 )
                 return r.id
+            r.id = None
             cur = con.execute(
                 "INSERT INTO work_records(work_date,clock_in,clock_out,break_start,break_end,deduct_break,standard_minutes,note,workday_type,overnight) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 values,
@@ -75,8 +70,17 @@ class WorkRecordRepository:
         ]
 
     def get_by_date(self, work_date: date):
-        return next(
-            (record for record in self.all() if record.work_date == work_date), None
+        row = self.db.connection.execute(
+            "SELECT * FROM work_records WHERE work_date=?", (work_date.isoformat(),)
+        ).fetchone()
+        return self._map_record(row) if row else None
+
+    def exists_by_date(self, work_date: date) -> bool:
+        return (
+            self.db.connection.execute(
+                "SELECT 1 FROM work_records WHERE work_date=?", (work_date.isoformat(),)
+            ).fetchone()
+            is not None
         )
 
     def recent(self, limit: int = 7):

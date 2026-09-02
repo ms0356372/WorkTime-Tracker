@@ -27,8 +27,7 @@ class WorkRecordService:
         record.break_start, record.break_end = self.settings.lunch_break()
         actual = calculate_work_minutes(record)
         existing = self.records.get_by_date(record.work_date)
-        if existing:
-            record.id = existing.id
+        record.id = existing.id if existing else None
         self.records.save(record)
         self.rebuild_ledger()
         difference = calculate_daily_difference(actual, record.standard_minutes)

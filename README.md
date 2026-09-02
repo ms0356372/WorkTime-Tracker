@@ -1,6 +1,6 @@
 # 工時管家（WorkTime Tracker）
 
-工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、離線、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不連線、不蒐集資料。本版版本為 `0.4.0`。
+工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、離線、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不連線、不蒐集資料。本版版本為 `0.5.0`。
 
 ## 功能與架構
 
@@ -62,7 +62,7 @@ python generate_demo_data.py
 
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
-`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.4.0-release.apk` 或 `工時管家-0.4.0-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.5.0-release.apk` 或 `工時管家-0.5.0-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
 
 ### `BackendUnavailable` 修復
 
