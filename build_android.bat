@@ -10,7 +10,7 @@ if not exist "scripts\build_android.bat" (
     exit /b 1
 )
 
-call "%~dp0scripts\build_android.bat"
+call "%~dp0scripts\build_android.bat" --debug
 set "BUILD_EXIT_CODE=%ERRORLEVEL%"
 
 if not "%BUILD_EXIT_CODE%"=="0" (
