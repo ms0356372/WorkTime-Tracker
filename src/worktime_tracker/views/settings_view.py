@@ -162,8 +162,11 @@ class SettingsView:
             f"目前補休\n{format_minutes(comp)}\n\n目前特休\n{format_minutes(annual)}"
         )
         self.annual_summary.text = f"年度特休：{format_minutes(total)}\n已使用：{format_minutes(used)}\n剩餘：{format_minutes(annual)}"
-        self.history.items.clear()
-        self.history.items.extend(self._history_items())
+        self.history.items = self._history_items()
+
+    def _notify(self):
+        if self.on_change:
+            self.on_change()
 
     def _notify(self):
         if self.on_change:
