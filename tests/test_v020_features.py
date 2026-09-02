@@ -93,10 +93,15 @@ def test_month_and_year_analysis_separate_overtime_and_shortfall():
 
 def test_v020_metadata_and_android_regressions():
     root = Path(__file__).parents[1]
-    config = tomllib.loads((root / "pyproject.toml").read_text())
+    with (root / "pyproject.toml").open("rb") as config_file:
+        config = tomllib.load(config_file)
     app = config["tool"]["briefcase"]["app"]["worktime_tracker"]
-    source = (root / "src/worktime_tracker/app.py").read_text()
-    dashboard = (root / "src/worktime_tracker/views/dashboard_view.py").read_text()
+    source = (root / "src/worktime_tracker/app.py").read_text(encoding="utf-8")
+    dashboard = (root / "src/worktime_tracker/views/dashboard_view.py").read_text(
+        encoding="utf-8"
+    )
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    metadata = (root / "src/worktime_tracker/config.py").read_text(encoding="utf-8")
     assert (
         config["project"]["version"]
         == config["tool"]["briefcase"]["version"]
@@ -108,10 +113,13 @@ def test_v020_metadata_and_android_regressions():
     )
     assert "tabs.content" not in source and "content=[" in source.replace(" ", "")
     assert "疲累" not in dashboard
-    assert "NAVIGATION_UNSELECTED_COLOR = \"#B0BEC5\"" in source
+    assert 'NAVIGATION_UNSELECTED_COLOR = "#B0BEC5"' in source
     assert all(
         label in dashboard for label in ("今天工時", "本月工時", "目前補休", "剩餘特休")
     )
     assert not {"numpy", "pandas", "matplotlib", "scipy"}.intersection(
         config["project"]["dependencies"]
     )
+    assert app["formal_name"] == "工時管家"
+    assert "工時管家" in readme
+    assert 'APP_NAME = "工時管家"' in metadata

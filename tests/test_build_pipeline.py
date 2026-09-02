@@ -184,7 +184,7 @@ def test_report_has_required_android_status_fields(tmp_path, monkeypatch):
             "final": "PASS",
         }
     )
-    report = (tmp_path / "build_report.txt").read_text()
+    report = (tmp_path / "build_report.txt").read_text(encoding="utf-8")
     for field in (
         "pytest result",
         "Android create/update result",
