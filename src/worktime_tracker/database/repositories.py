@@ -82,12 +82,37 @@ class WorkRecordRepository:
     def recent(self, limit: int = 7):
         return list(reversed(self.all()))[:limit]
 
+    def records_for_month(self, year: int, month: int):
+        from worktime_tracker.utils.months import next_month
+
+        next_year, next_month_value = next_month(year, month)
+        start = date(year, month, 1).isoformat()
+        end = date(next_year, next_month_value, 1).isoformat()
+        rows = self.db.connection.execute(
+            "SELECT * FROM work_records WHERE work_date>=? AND work_date<? ORDER BY work_date DESC",
+            (start, end),
+        )
+        return [self._map_record(row) for row in rows]
+
     def for_month(self, year: int, month: int):
-        return [
-            record
-            for record in reversed(self.all())
-            if record.work_date.year == year and record.work_date.month == month
-        ]
+        """Backward-compatible alias for the range-query implementation."""
+        return self.records_for_month(year, month)
+
+    @staticmethod
+    def _map_record(x):
+        return WorkRecord(
+            date.fromisoformat(x["work_date"]),
+            x["clock_in"],
+            x["clock_out"],
+            x["break_start"],
+            x["break_end"],
+            bool(x["deduct_break"]),
+            x["standard_minutes"],
+            x["note"],
+            WorkdayType(x["workday_type"]),
+            bool(x["overnight"]),
+            x["id"],
+        )
 
     def delete(self, record_id: int):
         with self.db.transaction() as con:

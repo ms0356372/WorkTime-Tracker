@@ -1,44 +1,67 @@
-"""Current-month work record list."""
+"""Selectable-month work record list with stable dynamic replacement."""
 
 from datetime import date
 import toga
 from toga.style import Pack
-from toga.style.pack import COLUMN
+from toga.style.pack import COLUMN, ROW
 from worktime_tracker.services.worktime_calculator import (
     calculate_daily_difference,
     calculate_work_minutes,
 )
 from worktime_tracker.utils.formatting import format_minutes
+from worktime_tracker.utils.months import next_month, previous_month
 
 
 class MonthlyRecordsView:
     def __init__(self, repository, on_edit):
         self.repository = repository
         self.on_edit = on_edit
+        today = date.today()
+        self.selected_year = today.year
+        self.selected_month = today.month
 
     def build(self):
         self.heading = toga.Label("")
         self.list = toga.Box(style=Pack(direction=COLUMN, gap=8))
+        self.list_host = toga.Box(children=[self.list], style=Pack(direction=COLUMN))
+        navigation = toga.Box(
+            children=[
+                toga.Button("<", on_press=self.show_previous_month),
+                self.heading,
+                toga.Button(">", on_press=self.show_next_month),
+            ],
+            style=Pack(direction=ROW, gap=8),
+        )
         content = toga.Box(
-            children=[self.heading, toga.Label("本月紀錄"), self.list],
+            children=[navigation, toga.Label("月份紀錄"), self.list_host],
             style=Pack(direction=COLUMN, margin=16, gap=10),
         )
         self.container = toga.ScrollContainer(content=content, style=Pack(flex=1))
         self.refresh()
         return self.container
 
+    def show_previous_month(self, widget=None):
+        self.selected_year, self.selected_month = previous_month(
+            self.selected_year, self.selected_month
+        )
+        self.refresh()
+
+    def show_next_month(self, widget=None):
+        self.selected_year, self.selected_month = next_month(
+            self.selected_year, self.selected_month
+        )
+        self.refresh()
+
     def refresh(self):
-        if not hasattr(self, "list"):
+        if not hasattr(self, "list_host"):
             return
-        today = date.today()
-        self.heading.text = f"{today.year} 年 {today.month} 月"
-        self.list.children.clear()
-        records = self.repository.for_month(today.year, today.month)
+        self.heading.text = f"{self.selected_year} 年 {self.selected_month} 月"
+        records = self.repository.records_for_month(
+            self.selected_year, self.selected_month
+        )
+        children = []
         if not records:
-            self.list.add(
-                toga.Label("目前尚無本月工時紀錄\n可至「紀錄」新增每日工時。")
-            )
-            return
+            children.append(toga.Label("目前此月份沒有工時紀錄。"))
         for record in records:
             actual = calculate_work_minutes(record)
             diff = calculate_daily_difference(actual, record.standard_minutes)
@@ -53,19 +76,16 @@ class MonthlyRecordsView:
                 await toga.App.app.main_window.dialog(
                     toga.InfoDialog(
                         "工時紀錄詳情",
-                        f"日期：{selected.work_date.isoformat()}\n"
-                        f"上班：{selected.clock_in}\n下班：{selected.clock_out}\n"
-                        f"午休：{selected.break_start} - {selected.break_end}\n"
-                        f"實際工作：{format_minutes(work)}\n"
-                        f"每日基準：{format_minutes(selected.standard_minutes)}\n"
-                        f"{delta}\n備註：{selected.note or '無'}\n\n"
-                        "已載入至「紀錄」頁，可切換頁籤修改或刪除。",
+                        f"日期：{selected.work_date.isoformat()}\n上班：{selected.clock_in}\n下班：{selected.clock_out}\n午休：{selected.break_start} - {selected.break_end}\n實際工作：{format_minutes(work)}\n每日基準：{format_minutes(selected.standard_minutes)}\n{delta}\n備註：{selected.note or '無'}\n\n已載入至「紀錄」頁，可切換頁籤修改或刪除。",
                     )
                 )
 
-            self.list.add(
+            children.append(
                 toga.Button(
                     f"{record.work_date:%m/%d}\n{record.clock_in} - {record.clock_out}\n工作：{format_minutes(actual)}\n{change}",
                     on_press=show_detail,
                 )
             )
+        replacement = toga.Box(children=children, style=Pack(direction=COLUMN, gap=8))
+        self.list_host.replace(self.list, replacement)
+        self.list = replacement

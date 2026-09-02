@@ -25,6 +25,9 @@ class RecordsView:
         self.note = toga.TextInput(placeholder="備註")
         self.result = toga.Label("儲存後會在這裡顯示本日工時計算結果。")
         self.recent_box = toga.Box(style=Pack(direction=COLUMN, gap=6))
+        self.recent_records_host = toga.Box(
+            children=[self.recent_box], style=Pack(direction=COLUMN)
+        )
         form = toga.Box(
             children=[
                 toga.Label("新增每日紀錄"),
@@ -40,7 +43,7 @@ class RecordsView:
                 toga.Button("刪除此紀錄", on_press=self.delete),
                 self.result,
                 toga.Label("最近紀錄"),
-                self.recent_box,
+                self.recent_records_host,
             ],
             style=Pack(direction=COLUMN, margin=16, gap=8),
         )
@@ -102,17 +105,24 @@ class RecordsView:
             self.on_change()
 
     def refresh(self):
-        if not hasattr(self, "recent_box"):
+        if not hasattr(self, "recent_records_host"):
             return
-        self.recent_box.children.clear()
-        records = self.records.recent(7)
+        self.refresh_recent_records()
+
+    def refresh_recent_records(self):
+        """Atomically replace only the dynamic list; never append to stale widgets."""
+        records = self.records.recent(5)
+        children = []
         if not records:
-            self.recent_box.add(toga.Label("目前尚無工時紀錄。"))
-            return
+            children.append(toga.Label("目前尚無工時紀錄。"))
         for record in records:
             minutes = calculate_work_minutes(record)
-            button = toga.Button(
-                f"{record.work_date:%m/%d}　{record.clock_in} - {record.clock_out}\n工時 {format_minutes(minutes)}",
-                on_press=lambda widget, r=record: self.load(r),
+            children.append(
+                toga.Button(
+                    f"{record.work_date:%m/%d}　{record.clock_in} - {record.clock_out}\n工時 {format_minutes(minutes)}",
+                    on_press=lambda widget, r=record: self.load(r),
+                )
             )
-            self.recent_box.add(button)
+        replacement = toga.Box(children=children, style=Pack(direction=COLUMN, gap=6))
+        self.recent_records_host.replace(self.recent_box, replacement)
+        self.recent_box = replacement
