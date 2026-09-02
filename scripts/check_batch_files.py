@@ -5,12 +5,37 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+IGNORED_DIRECTORIES = {
+    ".git",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
 BACKSLASH = bytes((92,))
 BAD_SEQUENCES = {
     b"%" + BACKSLASH + b"~dp0": "escaped script-directory expansion",
     b"build" + BACKSLASH + b"_android": "escaped Android filename",
 }
 MARKDOWN_ESCAPE = re.compile(re.escape(BACKSLASH) + rb"(?:_|[\x2a]|#|[\x5b]|[\x5d]|<|>)")
+
+
+def iter_source_files(*patterns: str):
+    """Yield repository sources, excluding files owned by development tools."""
+    for pattern in patterns:
+        for path in ROOT.rglob(pattern):
+            if not IGNORED_DIRECTORIES.intersection(path.relative_to(ROOT).parts):
+                yield path
+
+
+def iter_batch_files():
+    """Yield batch sources maintained by this project."""
+    yield from iter_source_files("*.bat", "*.cmd")
 
 
 def validate_batch_file(path: Path) -> list[str]:
@@ -41,14 +66,14 @@ def validate_source_escapes() -> list[str]:
     errors: list[str] = []
     markdown_escape = MARKDOWN_ESCAPE
     for suffix in ("*.py", "*.toml"):
-        for path in ROOT.rglob(suffix):
+        for path in iter_source_files(suffix):
             if path.resolve() == Path(__file__).resolve(): continue
             if markdown_escape.search(path.read_bytes()):
                 errors.append(f"possible Markdown escape in {path.relative_to(ROOT)}")
     return errors
 
 def main() -> int:
-    files = sorted((*ROOT.rglob("*.bat"), *ROOT.rglob("*.cmd")))
+    files = sorted(iter_batch_files())
     if not files:
         print("BATCH CHECK: FAIL - no .bat or .cmd files found")
         return 1
