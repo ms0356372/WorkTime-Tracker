@@ -168,6 +168,10 @@ class SettingsView:
         if self.on_change:
             self.on_change()
 
+    def _notify(self):
+        if self.on_change:
+            self.on_change()
+
     async def reverse_selected(self, widget):
         if not self.history.value or not self.history.value.startswith("#"):
             await self.app.main_window.dialog(
