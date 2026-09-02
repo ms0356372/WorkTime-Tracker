@@ -141,6 +141,23 @@ class SettingsRepository:
             self.get("leave_deduction_priority", DeductionPriority.COMP_TIME_FIRST)
         )
 
+    def lunch_break(self) -> tuple[str, str]:
+        return (
+            self.get("lunch_break_start", "12:00") or "12:00",
+            self.get("lunch_break_end", "13:00") or "13:00",
+        )
+
+    def set_lunch_break(self, start: str, end: str) -> None:
+        with self.db.transaction() as con:
+            con.execute(
+                "INSERT INTO settings(key,value) VALUES('lunch_break_start',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (start,),
+            )
+            con.execute(
+                "INSERT INTO settings(key,value) VALUES('lunch_break_end',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (end,),
+            )
+
 
 class LedgerRepository:
     def __init__(self, db):

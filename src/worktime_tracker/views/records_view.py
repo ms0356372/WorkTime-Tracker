@@ -23,7 +23,7 @@ class RecordsView:
         self.start = toga.TimeInput()
         self.end = toga.TimeInput()
         self.note = toga.TextInput(placeholder="備註")
-        self.result = toga.Label("儲存後會在這裡顯示本日工時計算結果。")
+        self.result = toga.Label("")
         self.recent_box = toga.Box(style=Pack(direction=COLUMN, gap=6))
         self.recent_records_host = toga.Box(
             children=[self.recent_box], style=Pack(direction=COLUMN)
@@ -40,7 +40,6 @@ class RecordsView:
                 toga.Label("備註"),
                 self.note,
                 toga.Button("儲存紀錄", on_press=self.save),
-                toga.Button("刪除此紀錄", on_press=self.delete),
                 self.result,
                 toga.Label("最近紀錄"),
                 self.recent_records_host,
@@ -60,16 +59,8 @@ class RecordsView:
                 note=self.note.value,
                 id=self.editing_id,
             )
-            result = self.service.save(record)
+            self.service.save(record)
             self.editing_id = record.id
-            change = (
-                f"已計入補休\n{format_minutes(result.overtime_minutes)}"
-                if result.overtime_minutes
-                else f"不足工時\n{format_minutes(result.shortfall_minutes)}"
-            )
-            self.result.text = (
-                f"本日工時\n{format_minutes(result.work_minutes)}\n\n{change}"
-            )
             self.refresh()
             if self.on_change:
                 self.on_change()
@@ -85,28 +76,13 @@ class RecordsView:
         self.start.value = datetime.strptime(record.clock_in, "%H:%M").time()
         self.end.value = datetime.strptime(record.clock_out, "%H:%M").time()
         self.note.value = record.note
-        self.result.text = "已載入紀錄；修改欄位後按「儲存紀錄」。"
-
-    async def delete(self, widget):
-        if not self.editing_id:
-            await self.app.main_window.dialog(
-                toga.ErrorDialog("無法刪除", "請先從最近紀錄載入一筆資料。")
-            )
-            return
-        if not await self.app.main_window.dialog(
-            toga.ConfirmDialog("刪除紀錄", "確定刪除此筆工時並重新計算假別餘額嗎？")
-        ):
-            return
-        self.service.delete(self.editing_id)
-        self.editing_id = None
-        self.result.text = "紀錄已刪除，工時與假別 Ledger 已重新計算。"
-        self.refresh()
-        if self.on_change:
-            self.on_change()
 
     def refresh(self):
         if not hasattr(self, "recent_records_host"):
             return
+        self.result.text = (
+            f"本日工時\n{format_minutes(self.service.today_work_minutes())}"
+        )
         self.refresh_recent_records()
 
     def refresh_recent_records(self):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import date
 from worktime_tracker.models import WorkRecord
 from .balance_service import LeaveBalanceService
 from .worktime_calculator import calculate_daily_difference, calculate_work_minutes
@@ -23,6 +24,7 @@ class WorkRecordService:
         self.balances = LeaveBalanceService()
 
     def save(self, record: WorkRecord) -> RecordResult:
+        record.break_start, record.break_end = self.settings.lunch_break()
         actual = calculate_work_minutes(record)
         existing = self.records.get_by_date(record.work_date)
         if existing:
@@ -48,3 +50,16 @@ class WorkRecordService:
             opening,
             self.settings.deduction_priority(),
         )
+
+    def apply_global_lunch_break(self) -> None:
+        start, end = self.settings.lunch_break()
+        with self.records.db.transaction() as con:
+            con.execute(
+                "UPDATE work_records SET break_start=?,break_end=?,deduct_break=1",
+                (start, end),
+            )
+        self.rebuild_ledger()
+
+    def today_work_minutes(self, today: date | None = None) -> int:
+        record = self.records.get_by_date(today or date.today())
+        return calculate_work_minutes(record) if record else 0

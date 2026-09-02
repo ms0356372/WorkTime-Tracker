@@ -82,6 +82,9 @@ class SettingsRepository:
     def get(self, key, default=None):
         return default
 
+    def lunch_break(self):
+        return "12:00", "13:00"
+
 
 class LedgerRepository:
     def current_balances(self):
@@ -94,6 +97,9 @@ class LedgerRepository:
 class RecordRepository:
     def all(self):
         return []
+
+    def get_by_date(self, work_date):
+        return next((record for record in self.all() if record.work_date == work_date), None)
 
     def recent(self, limit=7):
         return []

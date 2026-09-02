@@ -1,12 +1,13 @@
 """Responsive settings, annual leave, and conversion controls."""
 
-from datetime import date
+from datetime import date, datetime
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
 from worktime_tracker.models import DeductionPriority, LeaveType
 from worktime_tracker.services.leave_conversion_service import LeaveConversionService
 from worktime_tracker.services.record_service import WorkRecordService
+from worktime_tracker.services.worktime_calculator import validate_lunch_break
 from worktime_tracker.utils.formatting import format_minutes
 
 
@@ -41,6 +42,13 @@ class SettingsView:
         self.annual_hours = toga.NumberInput(min=0, step=1, value=total // 60)
         self.settlement = toga.DateInput(value=date.fromisoformat(settlement))
         self.annual_summary = toga.Label("")
+        lunch_start, lunch_end = self.settings.lunch_break()
+        self.lunch_start = toga.TimeInput(
+            value=datetime.strptime(lunch_start, "%H:%M").time()
+        )
+        self.lunch_end = toga.TimeInput(
+            value=datetime.strptime(lunch_end, "%H:%M").time()
+        )
         self.source = toga.Selection(
             items=["補休", "特休"], value="補休", on_change=self.change_source
         )
@@ -61,6 +69,12 @@ class SettingsView:
             toga.Button("儲存年度特休設定", on_press=self.save_annual_leave),
             self.annual_summary,
             self.balances,
+            toga.Label("午休設定"),
+            toga.Label("午休開始時間"),
+            self.lunch_start,
+            toga.Label("午休結束時間"),
+            self.lunch_end,
+            toga.Button("儲存午休設定", on_press=self.save_lunch_break),
             toga.Label("補休 / 特休轉換"),
             toga.Label("轉換來源"),
             self.source,
@@ -111,6 +125,25 @@ class SettingsView:
         self._notify()
         await self.app.main_window.dialog(
             toga.InfoDialog("設定已儲存", "年度特休與結算日已更新。")
+        )
+
+    async def save_lunch_break(self, widget):
+        start = self.lunch_start.value.strftime("%H:%M")
+        end = self.lunch_end.value.strftime("%H:%M")
+        try:
+            validate_lunch_break(start, end)
+        except ValueError as exc:
+            await self.app.main_window.dialog(toga.ErrorDialog("無法儲存", str(exc)))
+            return
+        self.settings.set_lunch_break(start, end)
+        if self.records:
+            WorkRecordService(
+                self.records, self.ledger, self.settings
+            ).apply_global_lunch_break()
+        self.refresh()
+        self._notify()
+        await self.app.main_window.dialog(
+            toga.InfoDialog("午休設定已儲存", "歷史工時與假別餘額已重新計算。")
         )
 
     async def confirm_conversion(self, widget):

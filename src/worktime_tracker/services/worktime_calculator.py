@@ -1,9 +1,12 @@
 """Pure minute-based work-time calculations."""
+
 from datetime import datetime, timedelta
 from worktime_tracker.models import WorkRecord
 
+
 class ValidationError(ValueError):
     """A user-correctable input error."""
+
 
 def _at(day, value: str) -> datetime:
     try:
@@ -12,10 +15,26 @@ def _at(day, value: str) -> datetime:
         raise ValidationError("時間格式必須為 HH:MM。") from exc
     return datetime.combine(day, parsed)
 
-def calculate_lunch_overlap(work_start: datetime, work_end: datetime, break_start: datetime, break_end: datetime) -> int:
+
+def calculate_overlap_minutes(
+    work_start: datetime, work_end: datetime, break_start: datetime, break_end: datetime
+) -> int:
     if break_end < break_start:
         raise ValidationError("午休結束時間不可早於開始時間。")
-    return max(0, int((min(work_end, break_end) - max(work_start, break_start)).total_seconds() // 60))
+    overlap_start = max(work_start, break_start)
+    overlap_end = min(work_end, break_end)
+    return max(0, int((overlap_end - overlap_start).total_seconds() // 60))
+
+
+def validate_lunch_break(start: str, end: str) -> None:
+    start_time = datetime.strptime(start, "%H:%M").time()
+    end_time = datetime.strptime(end, "%H:%M").time()
+    if end_time <= start_time:
+        raise ValidationError("午休結束時間必須晚於開始時間。")
+
+
+calculate_lunch_overlap = calculate_overlap_minutes
+
 
 def calculate_work_minutes(record: WorkRecord) -> int:
     if not record.clock_in or not record.clock_out:
@@ -31,8 +50,9 @@ def calculate_work_minutes(record: WorkRecord) -> int:
     if record.deduct_break and record.break_start and record.break_end:
         break_start = _at(record.work_date, record.break_start)
         break_end = _at(record.work_date, record.break_end)
-        overlap = calculate_lunch_overlap(start, end, break_start, break_end)
-    return raw - overlap
+        overlap = calculate_overlap_minutes(start, end, break_start, break_end)
+    return max(raw - overlap, 0)
+
 
 def calculate_daily_difference(actual_minutes: int, standard_minutes: int) -> int:
     if standard_minutes < 0:

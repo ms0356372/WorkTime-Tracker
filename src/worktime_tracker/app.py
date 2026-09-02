@@ -35,7 +35,13 @@ class WorkTimeApp(toga.App):
             self.settings_repository,
             self.refresh_views,
         )
-        self.monthly_view = MonthlyRecordsView(self.repository, self.records_view.load)
+        self.monthly_view = MonthlyRecordsView(
+            self.repository,
+            self.records_view.load,
+            self.ledger_repository,
+            self.settings_repository,
+            self.refresh_views,
+        )
         self.analysis_view = AnalysisView(self.repository, self.ledger_repository)
         self.settings_view = SettingsView(
             self.settings_repository,
