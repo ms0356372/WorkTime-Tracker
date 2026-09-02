@@ -63,3 +63,7 @@ python generate_demo_data.py
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
 `python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/worktime-tracker-0.1.0-release.apk` 或 `worktime-tracker-0.1.0-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+
+### `BackendUnavailable` 修復
+
+若舊版專案曾顯示 `Cannot import 'briefcase.integrations.setuptools'`，新版已改用標準 `setuptools.build_meta` editable-install backend。Android BAT 會先升級 `pip`、`setuptools`、`wheel`，再安裝 Briefcase，最後才執行 `pip install -e ".[dev]"`。既有 `.venv` 可直接再次執行 `build_android.bat` 進行修復；若該環境曾中途損壞，可刪除 `.venv` 後重新雙擊 BAT。

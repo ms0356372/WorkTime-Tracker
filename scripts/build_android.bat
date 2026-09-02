@@ -33,11 +33,11 @@ if errorlevel 1 goto :error
 
 echo.
 echo [3/6] Installing dependencies...
-"%PYTHON%" -m pip install --upgrade pip
+"%PYTHON%" -m pip install --upgrade pip setuptools wheel
+if errorlevel 1 goto :error
+"%PYTHON%" -m pip install --upgrade "briefcase>=0.3.20,<0.4"
 if errorlevel 1 goto :error
 "%PYTHON%" -m pip install -e ".[dev]"
-if errorlevel 1 goto :error
-"%PYTHON%" -m pip install briefcase
 if errorlevel 1 goto :error
 
 echo.

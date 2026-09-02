@@ -66,6 +66,8 @@ def build_configuration_check() -> None:
     missing = [path for path in required if not (ROOT / path).is_file()]
     if missing: raise RuntimeError(f"Missing build files: {missing}")
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert data["build-system"]["build-backend"] == "setuptools.build_meta"
+    assert "setuptools>=69" in data["build-system"]["requires"]
     app = data["tool"]["briefcase"]["app"]["worktime_tracker"]
     assert "android" in app and "iOS" in app
     assert app["sources"] == ["src/worktime_tracker"]

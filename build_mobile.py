@@ -114,6 +114,9 @@ def write_report(state: dict[str, str]) -> None:
 
 def validate_configuration() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    backend = data.get("build-system", {}).get("build-backend")
+    if backend != "setuptools.build_meta":
+        raise RuntimeError(f"Unsupported Python build backend: {backend!r}. Expected setuptools.build_meta.")
     app = data["tool"]["briefcase"]["app"]["worktime_tracker"]
     if "src/worktime_tracker" not in app["sources"]:
         raise RuntimeError("Briefcase sources must include src/worktime_tracker.")
@@ -134,7 +137,9 @@ def doctor() -> int:
     print(f"JAVA_HOME: {os.environ.get('JAVA_HOME', 'not set')}")
     print(f"Android SDK availability: {os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT') or 'not set'}")
     print(f"ANDROID_HOME: {os.environ.get('ANDROID_HOME', 'not set')}")
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     print(f"pyproject.toml: {(ROOT / 'pyproject.toml').is_file()}")
+    print(f"Python build backend: {pyproject['build-system']['build-backend']}")
     print(f"Android scaffold: {android_scaffolds() or 'not created'}")
     print(f"Release directory: {RELEASE}")
     if java:
