@@ -5,7 +5,7 @@ cd /d "%~dp0\.."
 if not exist "release" mkdir "release"
 
 echo ==================================================
-echo WorkTime Tracker - Android Build
+echo WorkTime Tracker - Android Build %*
 echo ==================================================
 echo Project root: %CD%
 echo This window will pause after success or failure.
@@ -48,7 +48,7 @@ if errorlevel 1 goto :error
 echo.
 echo [5/6] Starting Android build...
 set "PYTHONUNBUFFERED=1"
-"%PYTHON%" -u build_mobile.py android
+"%PYTHON%" -u build_mobile.py android %*
 set "RESULT=%ERRORLEVEL%"
 if not "%RESULT%"=="0" (
     echo.
