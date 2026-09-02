@@ -4,8 +4,6 @@ from pathlib import Path
 
 import toga
 from toga.style import Pack
-from toga.style.pack import COLUMN, ROW
-
 from worktime_tracker.config import APP_NAME
 from worktime_tracker.database import (
     Database,
@@ -13,8 +11,13 @@ from worktime_tracker.database import (
     SettingsRepository,
     WorkRecordRepository,
 )
+from worktime_tracker.views.analysis_view import AnalysisView
 from worktime_tracker.views.dashboard_view import DashboardView
+from worktime_tracker.views.monthly_records_view import MonthlyRecordsView
+from worktime_tracker.views.records_view import RecordsView
 from worktime_tracker.views.settings_view import SettingsView
+
+NAVIGATION_UNSELECTED_COLOR = "#B0BEC5"
 
 
 class WorkTimeApp(toga.App):
@@ -25,75 +28,48 @@ class WorkTimeApp(toga.App):
         self.repository = WorkRecordRepository(self.db)
         self.settings_repository = SettingsRepository(self.db)
         self.ledger_repository = LedgerRepository(self.db)
-
-        tabs = toga.OptionContainer(
+        self.dashboard_view = DashboardView(self.repository, self.ledger_repository)
+        self.records_view = RecordsView(
+            self.repository,
+            self.ledger_repository,
+            self.settings_repository,
+            self.refresh_views,
+        )
+        self.monthly_view = MonthlyRecordsView(self.repository, self.records_view.load)
+        self.analysis_view = AnalysisView(self.repository, self.ledger_repository)
+        self.settings_view = SettingsView(
+            self.settings_repository,
+            self.ledger_repository,
+            self.repository,
+            self.refresh_views,
+        )
+        self.tabs = toga.OptionContainer(
             content=[
-                ("首頁", DashboardView(self.repository).build()),
-                ("紀錄", self._records()),
-                (
-                    "日曆",
-                    toga.Box(
-                        children=[toga.Label("月曆（紀錄依日期排列）")],
-                        style=Pack(direction=COLUMN, margin=16),
-                    ),
-                ),
-                (
-                    "分析",
-                    toga.Box(
-                        children=[toga.Label("分析資料將依本機紀錄即時計算")],
-                        style=Pack(direction=COLUMN, margin=16),
-                    ),
-                ),
-                (
-                    "設定",
-                    SettingsView(
-                        self.settings_repository,
-                        self.ledger_repository,
-                    ).build(),
-                ),
+                ("首頁", self.dashboard_view.build()),
+                ("紀錄", self.records_view.build()),
+                ("日曆", self.monthly_view.build()),
+                ("分析", self.analysis_view.build()),
+                ("設定", self.settings_view.build()),
             ],
-            style=Pack(flex=1),
+            on_select=self.on_tab_select,
+            style=Pack(flex=1, color=NAVIGATION_UNSELECTED_COLOR),
         )
         self.main_window = toga.MainWindow(title=APP_NAME)
-        self.main_window.content = tabs
+        self.main_window.content = self.tabs
         self.main_window.show()
 
-    def _records(self):
-        self.date = toga.DateInput()
-        self.start = toga.TimeInput()
-        self.end = toga.TimeInput()
-        self.note = toga.TextInput(placeholder="備註")
-        save = toga.Button("儲存紀錄", on_press=self.save_record)
-        return toga.Box(
-            children=[
-                toga.Label("新增每日紀錄"),
-                self.date,
-                toga.Box(
-                    children=[self.start, self.end],
-                    style=Pack(direction=ROW),
-                ),
-                self.note,
-                save,
-            ],
-            style=Pack(direction=COLUMN, margin=16, gap=8),
-        )
+    def refresh_views(self):
+        for view in (
+            self.dashboard_view,
+            self.records_view,
+            self.monthly_view,
+            self.analysis_view,
+            self.settings_view,
+        ):
+            view.refresh()
 
-    async def save_record(self, widget):
-        from worktime_tracker.models import WorkRecord
-
-        try:
-            record = WorkRecord(
-                self.date.value,
-                self.start.value.strftime("%H:%M"),
-                self.end.value.strftime("%H:%M"),
-                note=self.note.value,
-            )
-            self.repository.save(record)
-            await self.main_window.dialog(toga.InfoDialog("完成", "紀錄已儲存。"))
-        except Exception:
-            await self.main_window.dialog(
-                toga.ErrorDialog("無法儲存", "請檢查日期與時間後再試一次。")
-            )
+    async def on_tab_select(self, widget):
+        self.refresh_views()
 
 
 def main():
