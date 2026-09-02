@@ -34,7 +34,11 @@ python generate_demo_data.py
 
 ## Windows／Android
 
-安裝 Python 後雙擊 `scripts/build_android.bat`，或執行 `python build_mobile.py android`。腳本會建立環境、安裝依賴、先測試，再依序執行 Briefcase create/build/package。成品會複製到 `release/android/`；報告位於 `release/build_report.txt`。Android SDK/Java 元件首次可能由 Briefcase 下載，因此需要網路與足夠磁碟空間。
+在 **Windows 10/11** 安裝 Python 3.11+（安裝時勾選 `Add Python to PATH`）後，可直接雙擊專案根目錄的 `build_android.bat`；它會轉交給 `scripts/build_android.bat`。也可以在 PowerShell 執行 `python build_mobile.py android`。
+
+腳本不是只建立設定：它會建立 `.venv`、安裝依賴、執行全部測試，再依序執行 Briefcase `create android`、`build android`、`package android`，因此完成後會自動得到可發布的 Android artifact。成品會複製到 `release/android/`，報告位於 `release/build_report.txt`，完整終端紀錄則永久保存在 `release/android_build.log`。
+
+首次建置需要下載 Briefcase、Android SDK、Gradle 與 Android 支援套件，通常需要 10–30 分鐘；某些下載階段可能數分鐘沒有新文字，但視窗不應關閉。成功或失敗後腳本都會停在「按任意鍵」畫面。若雙擊完全沒有視窗，請確認是在 Windows 執行、檔案不是從 ZIP 內直接開啟，然後在專案資料夾開啟 PowerShell 執行 `cmd /k build_android.bat`，即可看到 Windows 阻擋或 Python PATH 等錯誤。
 
 ## macOS／iOS
 
