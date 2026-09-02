@@ -6,10 +6,17 @@ def load_build_mobile():
     module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 def test_batch_sources_are_ascii_crlf_and_clean():
-    from scripts.check_batch_files import validate_batch_file
-    root=Path(__file__).parents[1]
-    files=[*root.rglob("*.bat"),*root.rglob("*.cmd")]
+    from scripts.check_batch_files import iter_batch_files, validate_batch_file
+    files=list(iter_batch_files())
     assert files and all(not validate_batch_file(path) for path in files)
+
+def test_batch_source_discovery_ignores_virtual_environments(tmp_path,monkeypatch):
+    from scripts import check_batch_files
+    monkeypatch.setattr(check_batch_files,"ROOT",tmp_path)
+    source=tmp_path/"build.cmd"; source.write_bytes(b"@echo off\r\necho %~dp0\r\n")
+    generated=tmp_path/".venv"/"Scripts"/"activate.bat"
+    generated.parent.mkdir(parents=True); generated.write_bytes(b"generated\n")
+    assert list(check_batch_files.iter_batch_files())==[source]
 
 def test_apk_search_is_recursive(tmp_path,monkeypatch):
     module=load_build_mobile(); monkeypatch.setattr(module,"BUILD",tmp_path)
