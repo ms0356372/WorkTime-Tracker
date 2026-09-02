@@ -107,6 +107,37 @@ def test_debug_build_artifact_naming():
     assert module.artifact_name("release", signed=True) == "工時管家-0.1.0-release.apk"
 
 
+def test_option_container_material_dependency_is_persistent():
+    import tomllib
+
+    root = Path(__file__).parents[1]
+    app_source = (root / "src/worktime_tracker/app.py").read_text(encoding="utf-8")
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    android = config["tool"]["briefcase"]["app"]["worktime_tracker"]["android"]
+    assert "toga.OptionContainer" in app_source
+    assert "toga-android>=0.5,<0.6" in android["requires"]
+    assert (
+        "com.google.android.material:material:1.12.0"
+        in android["build_gradle_dependencies"]
+    )
+
+
+def test_generated_gradle_contains_material_dependency(tmp_path, monkeypatch):
+    module = load_build_mobile()
+    monkeypatch.setattr(module, "BUILD", tmp_path)
+    gradle = (
+        tmp_path / "worktime_tracker" / "android" / "gradle" / "app" / "build.gradle"
+    )
+    gradle.parent.mkdir(parents=True)
+    gradle.write_text(
+        "dependencies {\n"
+        "    implementation 'com.google.android.material:material:1.12.0'\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    module.validate_generated_gradle_dependencies()
+
+
 def test_unsigned_release_is_not_installable(tmp_path, monkeypatch):
     module = load_build_mobile()
     monkeypatch.setattr(module, "find_android_tool", lambda name: None)

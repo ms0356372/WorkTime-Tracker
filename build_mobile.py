@@ -28,6 +28,7 @@ SIGNING_ENV_VARS = (
     "ANDROID_KEYSTORE_PASSWORD",
     "ANDROID_KEY_PASSWORD",
 )
+MATERIAL_DEPENDENCY = "com.google.android.material:material:1.12.0"
 
 
 class ApkInspection(NamedTuple):
@@ -281,6 +282,36 @@ def validate_configuration() -> None:
         raise RuntimeError("Briefcase sources must include src/worktime_tracker.")
     if "android" not in app:
         raise RuntimeError("Briefcase Android configuration is missing.")
+    android = app["android"]
+    if MATERIAL_DEPENDENCY not in android.get("build_gradle_dependencies", []):
+        raise RuntimeError(
+            f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}."
+        )
+
+
+def validate_generated_gradle_dependencies() -> None:
+    """Confirm Briefcase persisted required Maven dependencies into Gradle."""
+    gradle_files = (
+        sorted([*BUILD.rglob("build.gradle"), *BUILD.rglob("build.gradle.kts")])
+        if BUILD.exists()
+        else []
+    )
+    app_gradle_files = [path for path in gradle_files if path.parent.name == "app"]
+    if not app_gradle_files:
+        raise RuntimeError("Generated Android app/build.gradle was not found.")
+    if not any(
+        MATERIAL_DEPENDENCY in path.read_text(encoding="utf-8")
+        for path in app_gradle_files
+    ):
+        locations = ", ".join(str(path) for path in app_gradle_files)
+        raise RuntimeError(
+            f"Generated Gradle is missing {MATERIAL_DEPENDENCY}: {locations}"
+        )
+    print(
+        f"Android Gradle dependency verified: implementation '{MATERIAL_DEPENDENCY}'",
+        flush=True,
+    )
+
 
 
 def doctor() -> int:
@@ -473,6 +504,7 @@ def build_android(
             state["scaffold"] = "CREATE FAIL"
             run_command([sys.executable, "-m", "briefcase", "create", "android"])
             state["scaffold"] = "CREATE PASS"
+        validate_generated_gradle_dependencies()
         print(f"[BUILD] Building Android {mode} application...", flush=True)
         state["build"] = "FAIL"
         run_command([sys.executable, "-m", "briefcase", "build", "android"])

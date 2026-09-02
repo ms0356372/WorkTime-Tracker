@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+MATERIAL_DEPENDENCY = "com.google.android.material:material:1.12.0"
 sys.path.insert(0, str(ROOT / "src"))
 
 def checked(command: list[str]) -> None:
@@ -71,6 +72,11 @@ def build_configuration_check() -> None:
     app = data["tool"]["briefcase"]["app"]["worktime_tracker"]
     assert "android" in app and "iOS" in app
     assert app["sources"] == ["src/worktime_tracker"]
+    app_source = (ROOT / "src/worktime_tracker/app.py").read_text(encoding="utf-8")
+    if "toga.OptionContainer" in app_source:
+        android_dependencies = app["android"].get("build_gradle_dependencies", [])
+        if MATERIAL_DEPENDENCY not in android_dependencies:
+            raise RuntimeError(f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}")
     checked([sys.executable, "scripts/check_batch_files.py"])
 
 if __name__ == "__main__":
