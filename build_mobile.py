@@ -319,6 +319,18 @@ def doctor() -> int:
 
 
 def run_gradle_debug() -> None:
+    java_home = os.environ.get("JAVA_HOME")
+    java_name = "java.exe" if os.name == "nt" else "java"
+    java_from_home = Path(java_home) / "bin" / java_name if java_home else None
+    if java_from_home and not java_from_home.is_file():
+        raise RuntimeError(
+            f"Gradle fallback cannot run because JAVA_HOME is invalid: {java_home}"
+        )
+    if not java_from_home and not shutil.which("java"):
+        raise RuntimeError(
+            "Gradle fallback requires JAVA_HOME or a java executable on PATH. "
+            "Briefcase did not produce a debug APK."
+        )
     projects = gradle_projects()
     if not projects:
         raise RuntimeError(
@@ -328,6 +340,27 @@ def run_gradle_debug() -> None:
     wrapper = project / ("gradlew.bat" if os.name == "nt" else "gradlew")
     command = [str(wrapper), "assembleDebug"]
     run_command(command, cwd=project)
+
+
+def obtain_debug_apk() -> Path:
+    """Use Briefcase's debug artifact, falling back to Gradle only when absent."""
+    candidates = find_apks("-debug")
+    if candidates:
+        apk = candidates[-1]
+        print(f"[PACKAGE] Using Debug APK produced by Briefcase: {apk}", flush=True)
+        return apk
+
+    print(
+        "[PACKAGE] Briefcase produced no Debug APK; falling back to Gradle assembleDebug.",
+        flush=True,
+    )
+    run_gradle_debug()
+    candidates = find_apks("-debug")
+    if not candidates:
+        raise RuntimeError(
+            "Gradle assembleDebug completed but no newly generated *-debug.apk was found."
+        )
+    return candidates[-1]
 
 
 def release_signing_configured() -> bool:
@@ -445,24 +478,10 @@ def build_android(
         run_command([sys.executable, "-m", "briefcase", "build", "android"])
         state["build"] = "PASS"
         state["package"] = "FAIL"
-        package_started = datetime.now().timestamp()
         if mode == "debug":
-            print(
-                "[PACKAGE] Running Gradle assembleDebug (Android debug keystore signing)...",
-                flush=True,
-            )
-            run_gradle_debug()
-            candidates = [
-                path
-                for path in find_apks("-debug")
-                if path.stat().st_mtime >= package_started - 2
-            ]
-            if not candidates:
-                raise RuntimeError(
-                    "assembleDebug completed but no newly generated *-debug.apk was found."
-                )
-            apk, size, digest = copy_apk(candidates[-1], "debug")
+            apk, size, digest = copy_apk(obtain_debug_apk(), "debug")
         else:
+            package_started = datetime.now().timestamp()
             print("[PACKAGE] Packaging release APK and AAB...", flush=True)
             run_command(
                 [sys.executable, "-m", "briefcase", "package", "android", "-p", "apk"]

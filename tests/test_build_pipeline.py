@@ -41,6 +41,65 @@ def test_apk_search_is_recursive(tmp_path, monkeypatch):
     assert module.find_apks("-debug") == [apk]
 
 
+def test_briefcase_debug_apk_skips_gradle_fallback(tmp_path, monkeypatch):
+    module = load_build_mobile()
+    monkeypatch.setattr(module, "BUILD", tmp_path)
+    apk = (
+        tmp_path
+        / "worktime_tracker"
+        / "android"
+        / "gradle"
+        / "app"
+        / "build"
+        / "outputs"
+        / "apk"
+        / "debug"
+        / "app-debug.apk"
+    )
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"apk")
+    monkeypatch.setattr(
+        module,
+        "run_gradle_debug",
+        lambda: (_ for _ in ()).throw(AssertionError("Gradle must not run")),
+    )
+    assert module.obtain_debug_apk() == apk
+
+
+def test_gradle_is_only_fallback_when_briefcase_apk_is_absent(tmp_path, monkeypatch):
+    module = load_build_mobile()
+    monkeypatch.setattr(module, "BUILD", tmp_path)
+    apk = (
+        tmp_path
+        / "gradle"
+        / "app"
+        / "build"
+        / "outputs"
+        / "apk"
+        / "debug"
+        / "app-debug.apk"
+    )
+
+    def create_fallback_apk():
+        apk.parent.mkdir(parents=True)
+        apk.write_bytes(b"apk")
+
+    monkeypatch.setattr(module, "run_gradle_debug", create_fallback_apk)
+    assert module.obtain_debug_apk() == apk
+
+
+def test_gradle_fallback_checks_java_before_running(monkeypatch):
+    module = load_build_mobile()
+    monkeypatch.delenv("JAVA_HOME", raising=False)
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    try:
+        module.run_gradle_debug()
+    except RuntimeError as exc:
+        assert "JAVA_HOME" in str(exc)
+    else:
+        raise AssertionError("Gradle fallback must reject a missing Java runtime")
+
+
 def test_debug_build_artifact_naming():
     module = load_build_mobile()
     assert module.artifact_name("debug") == "工時管家-0.1.0-debug.apk"
