@@ -1,28 +1,240 @@
-"""Formatted XLSX exports (XlsxWriter is runtime-light and pure Python)."""
+"""Human-readable XLSX reports built from the application's canonical services."""
+
+from dataclasses import replace
+from datetime import date, timedelta
 from pathlib import Path
-from .analytics_service import calculate_month_summary, calculate_year_summary
-from .worktime_calculator import calculate_work_minutes
-def export_xlsx(path,records,ledger,settings,year,month=None):
+
+from worktime_tracker.models import LedgerOrigin, TransactionType
+from worktime_tracker.services.analytics_service import (
+    calculate_month_summary,
+    summarize,
+)
+from worktime_tracker.services.worktime_calculator import calculate_work_minutes
+from worktime_tracker.utils.formatting import format_minutes
+
+
+def export_filename(scope: str, today=None, start_date=None, end_date=None):
+    if scope == "leave_year":
+        return f"工時管家_年度_{start_date:%Y%m%d}-{end_date:%Y%m%d}.xlsx"
+    return f"工時管家_全部紀錄_{(today or date.today()):%Y%m%d}.xlsx"
+
+
+def _setting(settings, key, default=""):
+    if hasattr(settings, "get"):
+        return settings.get(key, default)
+    return default
+
+
+def _selected(records, scope, start_date, end_date):
+    if scope == "all":
+        return list(records)
+    if scope != "leave_year" or start_date is None or end_date is None:
+        raise ValueError("settlement date required")
+    return [r for r in records if start_date <= r.work_date <= end_date]
+
+
+def export_xlsx(
+    path,
+    records,
+    ledger,
+    settings,
+    scope="all",
+    start_date=None,
+    end_date=None,
+    calendar=None,
+    tracking_start_date=None,
+    today=None,
+):
+    """Write a four-sheet XLSX report; this file is never accepted for restore."""
     try:
         import xlsxwriter
     except ModuleNotFoundError:
         from worktime_tracker.utils import minimal_xlsxwriter as xlsxwriter
-    wb=xlsxwriter.Workbook(str(Path(path))); head=wb.add_format({"bold":True,"bg_color":"#D9EAF7"})
-    duration=wb.add_format({"num_format":"[h]:mm;-[h]:mm"})
-    def sheet(name,headers):
-        ws=wb.add_worksheet(name); ws.freeze_panes(1,0); ws.autofilter(0,0,0,len(headers)-1); ws.write_row(0,0,headers,head); ws.set_column(0,len(headers)-1,15); return ws
-    ws=sheet("每日工時",["日期","星期","工作日類型","上班時間","下班時間","午休開始","午休結束","原始工時","扣除休息","實際工時","基準工時","工時差額","補休增加","補休使用","特休使用","補休餘額","特休餘額","疲累指數","備註"])
-    selected=[r for r in records if r.work_date.year==year and (month is None or r.work_date.month==month)]
-    for i,r in enumerate(selected,1):
-        actual=calculate_work_minutes(r); diff=actual-r.standard_minutes
-        ws.write_row(i,0,[r.work_date.isoformat(),r.work_date.strftime("%A"),str(r.workday_type),r.clock_in,r.clock_out,r.break_start,r.break_end,"", "",actual/1440,r.standard_minutes/1440,diff/1440,max(diff,0)/1440,min(diff,0)/1440,"","","","",r.note]); ws.set_row(i,None,duration)
-    monthly=sheet("月統計",["月份","工作天數","總工作時數","標準工時","工時差","平均每日工時"])
-    for m in range(1,13):
-        s=calculate_month_summary(records,year,m); monthly.write_row(m,0,[f"{year}-{m:02}",s.workdays,s.work_minutes/1440,s.standard_minutes/1440,s.difference/1440,s.average_minutes/1440])
-    annual=sheet("年度統計",["年度","工作天數","總工作時數","標準工時","年度差額","平均每日工時","最長工作日"]); s=calculate_year_summary(records,year); annual.write_row(1,0,[year,s.workdays,s.work_minutes/1440,s.standard_minutes/1440,s.difference/1440,s.average_minutes/1440,s.longest_date or ""])
-    led=sheet("假別流水帳",["日期時間","交易類型","來源假別","目的假別","轉換時數","補休異動","特休異動","補休餘額","特休餘額","備註","來源紀錄 ID"])
-    for i,e in enumerate(ledger,1):
-        led.write_row(i,0,[e.transaction_datetime.isoformat(sep=" ", timespec="minutes"),str(e.transaction_type),str(e.source_leave_type or ""),str(e.target_leave_type or ""),(e.source_minutes or 0)/1440,e.comp_change/1440,e.annual_change/1440,e.comp_balance/1440,e.annual_balance/1440,e.note or e.reason,e.source_record_id])
-    cfg=sheet("設定",["項目","值"])
-    for i,(k,v) in enumerate(settings.items(),1): cfg.write_row(i,0,[k,str(v)])
-    wb.close()
+
+    selected = _selected(records, scope, start_date, end_date)
+    if not selected and not (calendar and tracking_start_date):
+        raise ValueError("所選期間沒有可匯出的工時紀錄。")
+
+    workbook = xlsxwriter.Workbook(str(Path(path)))
+    header = workbook.add_format({"bold": True, "bg_color": "#D9EAF7"})
+
+    def worksheet(name, columns):
+        sheet = workbook.add_worksheet(name)
+        sheet.freeze_panes(1, 0)
+        sheet.autofilter(0, 0, 0, len(columns) - 1)
+        sheet.write_row(0, 0, columns, header)
+        sheet.set_column(0, len(columns) - 1, 16)
+        return sheet
+
+    daily = worksheet(
+        "每日紀錄",
+        [
+            "日期",
+            "日期類型",
+            "狀態",
+            "上班時間",
+            "下班時間",
+            "午休扣除",
+            "實際工時",
+            "標準工時",
+            "超時",
+            "不足",
+            "備註",
+        ],
+    )
+    report_rows = [(record.work_date, record) for record in selected]
+    if calendar and tracking_start_date:
+        report_end = min(
+            end_date or (today or date.today()),
+            (today or date.today()) - timedelta(days=1),
+        )
+        report_start = max(start_date or tracking_start_date, tracking_start_date)
+        report_rows.extend(
+            (day, None)
+            for day in calendar.get_missing_workdays(report_start, report_end, selected)
+        )
+    report_rows.sort(key=lambda item: item[0])
+    for row, (work_date, record) in enumerate(report_rows, 1):
+        if record is None:
+            standard = calendar.standard_minutes_for(work_date)
+            daily.write_row(row, 0, [
+                work_date.strftime("%Y/%m/%d"), calendar.day_type(work_date), "無紀錄",
+                "", "", format_minutes(0), format_minutes(0), format_minutes(standard),
+                format_minutes(0), format_minutes(standard), "",
+            ])
+            continue
+        actual = calculate_work_minutes(record)
+        raw = calculate_work_minutes(replace(record, deduct_break=False))
+        standard = calendar.standard_minutes_for(record.work_date) if calendar else record.standard_minutes
+        difference = actual - standard
+        daily.write_row(
+            row,
+            0,
+            [
+                record.work_date.strftime("%Y/%m/%d"),
+                calendar.day_type(record.work_date) if calendar else str(record.workday_type),
+                "已登錄",
+                record.clock_in,
+                record.clock_out,
+                format_minutes(raw - actual),
+                format_minutes(actual),
+                format_minutes(standard),
+                format_minutes(max(difference, 0)),
+                format_minutes(max(-difference, 0)),
+                record.note,
+            ],
+        )
+
+    summary = worksheet("統計摘要", ["項目", "值", "出勤天數", "超時", "不足"])
+    comp, annual = (
+        (ledger[-1].comp_balance, ledger[-1].annual_balance) if ledger else (0, 0)
+    )
+    if scope == "leave_year":
+        result = summarize(selected, calendar, start_date, end_date, today)
+        rows = [
+            [
+                "年度期間",
+                f"{start_date:%Y/%m/%d} ～ {end_date:%Y/%m/%d}",
+                "",
+                "",
+                "",
+            ],
+            [
+                "總工時",
+                format_minutes(result.work_minutes),
+                result.workdays,
+                format_minutes(result.overtime_minutes),
+                format_minutes(result.shortfall_minutes),
+            ],
+            ["平均每日工時", format_minutes(result.average_minutes), "", "", ""],
+        ]
+        year, month = start_date.year, start_date.month
+        for _ in range(12):
+            monthly = calculate_month_summary(selected, year, month)
+            rows.append(
+                [
+                    f"{year}/{month:02d}",
+                    format_minutes(monthly.work_minutes),
+                    monthly.workdays,
+                    format_minutes(monthly.overtime_minutes),
+                    format_minutes(monthly.shortfall_minutes),
+                ]
+            )
+            month += 1
+            if month == 13:
+                year, month = year + 1, 1
+    else:
+        total = sum(calculate_work_minutes(record) for record in selected)
+        rows = [["全部紀錄", format_minutes(total), len(selected), "", ""]]
+    rows.extend(
+        [
+            ["目前補休餘額", format_minutes(comp), "", "", ""],
+            ["目前特休餘額", format_minutes(annual), "", "", ""],
+        ]
+    )
+    for row, values in enumerate(rows, 1):
+        summary.write_row(row, 0, values)
+
+    leave = worksheet("假別資料", ["日期", "類型", "來源", "目的", "分鐘數", "備註"])
+    leave.write_row(
+        1,
+        0,
+        [
+            "年度特休總量",
+            format_minutes(
+                int(_setting(settings, "annual_leave_total_minutes", "0") or 0)
+            ),
+        ],
+    )
+    leave.write_row(2, 0, ["目前特休餘額", format_minutes(annual)])
+    leave.write_row(3, 0, ["目前補休餘額", format_minutes(comp)])
+    leave.write_row(
+        4, 0, ["特休結算日", _setting(settings, "annual_leave_settlement_date", "")]
+    )
+    row = 6
+    for entry in ledger:
+        if entry.ledger_origin != LedgerOrigin.MANUAL or entry.transaction_type not in {
+            TransactionType.LEAVE_CONVERSION,
+            TransactionType.REVERSAL,
+        }:
+            continue
+        leave.write_row(
+            row,
+            0,
+            [
+                entry.entry_date.strftime("%Y/%m/%d"),
+                str(entry.transaction_type),
+                str(entry.source_leave_type or ""),
+                str(entry.target_leave_type or ""),
+                entry.source_minutes or 0,
+                entry.note or entry.reason,
+            ],
+        )
+        row += 1
+
+    config = worksheet("設定摘要", ["項目", "值"])
+    config_rows = [
+        (
+            "每日標準工時",
+            format_minutes(
+                int(_setting(settings, "daily_standard_minutes", "480") or 480)
+            ),
+        ),
+        ("午休開始", _setting(settings, "lunch_break_start", "12:00")),
+        ("午休結束", _setting(settings, "lunch_break_end", "13:00")),
+        (
+            "工時不足扣除順序",
+            _setting(settings, "leave_deduction_priority", "COMP_TIME_FIRST"),
+        ),
+        (
+            "年度特休總時數",
+            format_minutes(
+                int(_setting(settings, "annual_leave_total_minutes", "0") or 0)
+            ),
+        ),
+        ("特休結算日", _setting(settings, "annual_leave_settlement_date", "")),
+    ]
+    for row, values in enumerate(config_rows, 1):
+        config.write_row(row, 0, values)
+    workbook.close()
+    return Path(path)

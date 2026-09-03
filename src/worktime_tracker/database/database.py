@@ -1,9 +1,10 @@
 """SQLite connection and forward-only transactional migrations."""
 import sqlite3
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 
 class Database:
     def __init__(self, path: str | Path):
@@ -48,6 +49,33 @@ class Database:
             self.connection.execute("UPDATE balance_ledger SET created_at=transaction_datetime WHERE created_at IS NULL")
             self.connection.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('leave_deduction_priority','COMP_TIME_FIRST')")
             self.connection.execute("PRAGMA user_version=2")
+            version = 2
+        if version < 3:
+            # Calendar data is additive. Existing records and settings are untouched.
+            self.connection.executescript("""
+            CREATE TABLE IF NOT EXISTS calendar_overrides(
+                id INTEGER PRIMARY KEY,
+                work_date TEXT NOT NULL UNIQUE,
+                day_type TEXT NOT NULL CHECK(day_type IN ('WORKDAY','NON_WORKDAY')),
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS official_holidays(
+                holiday_date TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                synced_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_official_holidays_year
+                ON official_holidays(year);
+            PRAGMA user_version=3;
+            """)
+            self.connection.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('work_tracking_start_date',?)",
+                (date.today().isoformat(),),
+            )
         self.connection.commit()
 
     @contextmanager
