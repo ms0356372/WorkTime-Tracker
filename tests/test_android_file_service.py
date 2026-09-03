@@ -130,10 +130,11 @@ def test_android_flow_never_uses_toga_file_dialogs():
         "multiselect=",
         "multiple_select=",
     )
-    offenders = {
-        str(path.relative_to(root)): token
+    offenders = [
+        (str(path.relative_to(root)), token)
         for path in (root / "src/worktime_tracker").rglob("*.py")
         for token in forbidden
         if token in path.read_text(encoding="utf-8")
-    }
-    assert offenders == {}
+    ]
+    assert offenders == []
+    assert not (root / "src/worktime_tracker/utils/file_dialogs.py").exists()
