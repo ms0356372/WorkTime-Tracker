@@ -3,7 +3,7 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "worktime-tracker"
-version = "0.1.0"
+version = "0.8.0"
 description = "離線個人工時、補休與特休管理 App"
 requires-python = ">=3.11"
 dependencies = ["toga>=0.5,<0.6", "XlsxWriter>=3.2,<4"]
@@ -19,16 +19,20 @@ testpaths=["tests"]
 [tool.briefcase]
 project_name = "WorkTime Tracker"
 bundle = "tw.app.worktime"
-version = "0.1.0"
+version = "0.8.0"
 url = "https://example.invalid/worktime-tracker"
 license.file = "LICENSE"
 author = "WorkTime Tracker Contributors"
 [tool.briefcase.app.worktime_tracker]
 formal_name = "工時管家"
 description = "離線個人工時、補休與特休管理"
+primary_color = "#008577"
+primary_color_dark = "#004D40"
+accent_color = "#26A69A"
 sources = ["src/worktime_tracker"]
 requires = ["toga>=0.5,<0.6", "XlsxWriter>=3.2,<4"]
 [tool.briefcase.app.worktime_tracker.android]
 requires = ["toga-android>=0.5,<0.6"]
+build_gradle_dependencies = ["com.google.android.material:material:1.12.0"]
 [tool.briefcase.app.worktime_tracker.iOS]
 requires = ["toga-iOS>=0.5,<0.6"]
