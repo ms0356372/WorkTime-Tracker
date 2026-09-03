@@ -36,6 +36,7 @@ class WorkTimeApp(toga.App):
             OfficialHolidayRepository(self.db),
             self.settings_repository,
         )
+        self.calendar.ensure_packaged_fallback()
         self.settings_repository.tracking_start_date()
         self.dashboard_view = DashboardView(
             self.repository,
@@ -110,4 +111,3 @@ class WorkTimeApp(toga.App):
 
 def main():
     return WorkTimeApp()
-    OfficialHolidayRepository,

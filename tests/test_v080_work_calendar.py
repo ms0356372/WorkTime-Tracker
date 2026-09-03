@@ -25,9 +25,11 @@ def calendar(tmp_path, standard="480"):
     db = Database(tmp_path / "calendar.db")
     settings = SettingsRepository(db)
     settings.set("daily_standard_minutes", standard)
-    return db, settings, WorkCalendarService(
+    service = WorkCalendarService(
         CalendarOverrideRepository(db), OfficialHolidayRepository(db), settings
     )
+    service.ensure_packaged_fallback()
+    return db, settings, service
 
 
 def test_classification_priority_weekends_holidays_and_overrides(tmp_path):
@@ -89,11 +91,14 @@ def test_official_csv_parser_cache_and_offline_fallback(tmp_path):
     payload = "西元日期,星期,是否放假,備註\n20260928,一,2,教師節\n20260929,二,0,上班\n".encode()
     assert parse_official_calendar_csv(payload) == [(date(2026, 9, 28), "教師節")]
     db, _, service = calendar(tmp_path)
-    service.fetcher = lambda url: payload
+    metadata = b'{"result":{"resource":[{"resourceDescription":"115 year office calendar","resourceFormat":"CSV","resourceDownloadUrl":"https://example.invalid/calendar"}]}}'.replace(
+        b"115 year", "115年".encode()
+    )
+    service.fetcher = lambda url: metadata if url.endswith("14718") else payload
     assert service.sync_year(2026)
     assert OfficialHolidayRepository(db).get(date(2026, 9, 28))["name"] == "教師節"
     service.fetcher = lambda url: (_ for _ in ()).throw(TimeoutError())
-    assert service.sync_year(2026) is False
+    assert not service.sync_year(2026)
     assert service.day_type(date(2026, 9, 28)) == "國定假日"
 
 
@@ -104,14 +109,14 @@ def test_official_dataset_metadata_resolves_csv_without_live_network(tmp_path):
     def fixture_fetch(url):
         calls.append(url)
         if url.endswith("14718"):
-            return b'{"result":{"distribution":[{"downloadURL":"https://example.invalid/2026.csv"}]}}'
+            return b'{"result":{"distribution":[{"resourceDescription":"115 year calendar", "resourceFormat":"CSV", "downloadURL":"https://example.invalid/resource/abc"}]}}'.replace(b"115 year", "115年".encode())
         return "西元日期,是否放假,備註\n20261009,2,國慶日補假\n"
 
     service.fetcher = fixture_fetch
     assert service.sync_year(2026)
     assert calls == [
         "https://data.gov.tw/api/v2/rest/dataset/14718",
-        "https://example.invalid/2026.csv",
+        "https://example.invalid/resource/abc",
     ]
     assert OfficialHolidayRepository(db).get(date(2026, 10, 9))["name"] == "國慶日補假"
 

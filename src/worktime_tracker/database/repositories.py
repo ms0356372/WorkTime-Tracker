@@ -257,7 +257,8 @@ class OfficialHolidayRepository:
 
     def status(self):
         return list(self.db.connection.execute(
-            "SELECT year,COUNT(*) AS holiday_count,MAX(synced_at) AS synced_at "
+            "SELECT year,COUNT(*) AS holiday_count,MAX(synced_at) AS synced_at,"
+            "MAX(source) AS source "
             "FROM official_holidays GROUP BY year ORDER BY year"
         ))
 

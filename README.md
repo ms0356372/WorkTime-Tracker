@@ -1,8 +1,8 @@
 # 工時管家（WorkTime Tracker）
 
-工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.0`。
+工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.1`。
 
-v0.8.0 新增工作日曆：平日、官方國定假日與使用者特殊日期覆寫共用同一套判斷；從工時計算起始日起，已過且未登錄的正常上班日會納入假別不足計算，今天及未來日期不會預扣。
+v0.8.1 使用政府資料集的資源描述與格式選取年度 CSV，並內建 2026／2027 官方行事曆 fallback；平日、官方國定假日與使用者特殊日期覆寫共用同一套判斷，今天及未來日期不會預扣。
 
 ## 功能與架構
 
@@ -69,7 +69,7 @@ python generate_demo_data.py
 
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
-`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.0-release.apk` 或 `工時管家-0.8.0-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.1-release.apk` 或 `工時管家-0.8.1-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
 
 Windows 雙擊 `build_android.bat` 只會執行檢查與 Debug APK 建置，不會呼叫 ADB、安裝 APK 或清除手機資料。
 

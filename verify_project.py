@@ -99,7 +99,6 @@ def database_check() -> None:
     assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
-
 def excel_check() -> None:
     from worktime_tracker.models import WorkRecord
     from worktime_tracker.services.excel_export_service import export_xlsx

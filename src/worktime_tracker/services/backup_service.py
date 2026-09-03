@@ -290,6 +290,7 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
         calendar = WorkCalendarService(
             CalendarOverrideRepository(db), OfficialHolidayRepository(db), SettingsRepository(db)
         )
+        calendar.ensure_packaged_fallback()
         rebuilt = LeaveBalanceService().recalculate_balances(
             records,
             annual_opening=int(settings.get("annual_leave_total_minutes", "0") or 0),

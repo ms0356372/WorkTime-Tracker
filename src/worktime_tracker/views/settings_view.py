@@ -258,12 +258,18 @@ class SettingsView:
         if not self.calendar:
             return
         years = (date.today().year, date.today().year + 1)
-        succeeded = [self.calendar.sync_year(year) for year in years]
+        results = [self.calendar.sync_year(year) for year in years]
         self.refresh()
-        title = "國定假日已更新" if any(succeeded) else "國定假日資料更新失敗"
-        message = "已使用最新官方資料。" if any(succeeded) else "目前使用本機已儲存資料。"
+        succeeded = [result for result in results if result.success]
+        title = "國定假日更新結果"
+        message = "\n".join(
+            f"{result.year}：更新成功（{result.holiday_count} 個假日）"
+            if result.success
+            else f"{result.year}：更新失敗\n原因：{result.error_message}"
+            for result in results
+        )
         await self.app.main_window.dialog(toga.InfoDialog(title, message))
-        if any(succeeded) and self.records:
+        if succeeded and self.records:
             WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
             self._notify()
 
@@ -319,9 +325,23 @@ class SettingsView:
             self.leave_year_summary.text = "目前年度：尚未設定特休結算日"
         if self.calendar:
             statuses = self.calendar.holidays.status()
-            self.calendar_status.text = "\n".join(
-                f"{row['year']}：已更新（{row['holiday_count']} 日）" for row in statuses
-            ) or "尚無本機國定假日資料"
+            if statuses:
+                source_names = {
+                    "DGPA_PACKAGED": "內建官方資料",
+                    "DGPA_ONLINE": "政府網站最新同步",
+                }
+                self.calendar_status.text = "\n".join(
+                    f"{row['year']}：已更新（{row['holiday_count']} 個假日）\n"
+                    f"最後更新：{row['synced_at'][:16].replace('T', ' ')}\n"
+                    f"資料來源：{source_names.get(row['source'], row['source'])}"
+                    for row in statuses
+                )
+            else:
+                self.calendar_status.text = (
+                    "尚未下載國定假日資料\n"
+                    "請連接網路後按『更新國定假日』。\n"
+                    "該年度國定假日資料尚未建立，工時日曆可能不完整。"
+                )
             self.override_history.items = [
                 f"{row['work_date']}｜{'上班日' if row['day_type'] == 'WORKDAY' else '非上班日'}｜{row['note']}"
                 for row in self.calendar.overrides.all()
