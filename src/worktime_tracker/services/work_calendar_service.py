@@ -5,18 +5,29 @@ from __future__ import annotations
 import csv
 import io
 import json
-import socket
+import platform as python_platform
+import sys
 import traceback
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from .android_network_service import (
+    NetworkServiceError,
+    classify_network_exception,
+    platform_downloader,
+)
 
 OFFICIAL_SOURCE = "行政院人事行政總處－中華民國政府行政機關辦公日曆表"
 OFFICIAL_CALENDAR_URL = "https://data.gov.tw/api/v2/rest/dataset/14718"
 PACKAGED_SOURCE = "DGPA_PACKAGED"
 ONLINE_SOURCE = "DGPA_ONLINE"
+
+
+def holiday_sync_years(today: date | None = None) -> tuple[int, int]:
+    """Return the previous and current Gregorian years, in that order."""
+    current_year = (today or date.today()).year
+    return current_year - 1, current_year
 
 
 class OfficialCalendarError(RuntimeError):
@@ -173,7 +184,10 @@ class WorkCalendarService:
         self.overrides = overrides
         self.holidays = holidays
         self.settings = settings
-        self.fetcher = fetcher or self._download
+        downloader = platform_downloader()
+        self.fetcher = fetcher or downloader.download_bytes
+        owner = getattr(self.fetcher, "__self__", None)
+        self.network_backend = getattr(owner, "backend_name", "INJECTED_FETCHER")
         self._warned_years: set[int] = set()
 
     def ensure_packaged_fallback(self, years=(2026, 2027)) -> dict[int, int]:
@@ -239,7 +253,14 @@ class WorkCalendarService:
         """Atomically replace one year only after metadata, CSV, and year validation."""
         roc_year = year - 1911
         try:
-            print(f"Holiday sync: year={year}, roc_year={roc_year}, metadata={url}")
+            print(
+                "Holiday sync: "
+                f"platform={python_platform.system()}/{sys.platform}, "
+                f"python={python_platform.python_version()}, "
+                f"backend={self.network_backend}, year={year}, roc_year={roc_year}, "
+                f"metadata={url}",
+                flush=True,
+            )
             metadata_bytes = self._fetch(url, "METADATA")
             try:
                 metadata = json.loads(metadata_bytes.decode("utf-8-sig"))
@@ -266,6 +287,10 @@ class WorkCalendarService:
                 True, year, len(selected), ONLINE_SOURCE, resource.description
             )
         except Exception as exc:
+            print(
+                f"Holiday sync failed: year={year}, error={type(exc).__name__}: {exc}",
+                flush=True,
+            )
             traceback.print_exc()
             code, message = self._classify_error(exc)
             return HolidaySyncResult(False, year, error_code=code, error_message=message)
@@ -274,21 +299,14 @@ class WorkCalendarService:
         try:
             payload = self.fetcher(url)
             return payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
-        except HTTPError as exc:
-            error = OfficialCalendarError(f"政府網站回應 HTTP {exc.code}。")
-            error.code = "HTTP_ERROR"
+        except NetworkServiceError as exc:
+            error = OfficialCalendarError(exc.user_message)
+            error.code = exc.code
             raise error from exc
-        except (TimeoutError, socket.timeout) as exc:
-            error = OfficialCalendarError("連線逾時。")
-            error.code = "NETWORK_TIMEOUT"
-            raise error from exc
-        except URLError as exc:
-            error = OfficialCalendarError(f"網路連線失敗：{exc.reason}")
-            error.code = "NETWORK_ERROR" if stage == "METADATA" else "CSV_DOWNLOAD_ERROR"
-            raise error from exc
-        except OSError as exc:
-            error = OfficialCalendarError(f"網路連線失敗：{exc}")
-            error.code = "NETWORK_ERROR" if stage == "METADATA" else "CSV_DOWNLOAD_ERROR"
+        except Exception as exc:
+            normalized = classify_network_exception(exc)
+            error = OfficialCalendarError(normalized.user_message)
+            error.code = normalized.code
             raise error from exc
 
     @staticmethod
@@ -296,12 +314,6 @@ class WorkCalendarService:
         if isinstance(exc, OfficialCalendarError):
             return exc.code, str(exc)
         return "DATABASE_ERROR", f"無法儲存國定假日資料：{exc}"
-
-    @staticmethod
-    def _download(url: str) -> bytes:
-        request = Request(url, headers={"User-Agent": "WorkTimeTracker/0.8.1"})
-        with urlopen(request, timeout=12) as response:
-            return response.read()
 
     def needs_sync(self, year: int, now=None, max_age_days: int = 7) -> bool:
         rows = self.holidays.for_year(year)

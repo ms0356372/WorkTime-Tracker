@@ -167,6 +167,22 @@ def build_configuration_check() -> None:
             "Android runtime must use SAF, not Toga file dialogs: "
             + ", ".join(dialog_offenders)
         )
+    runtime_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "src/worktime_tracker").rglob("*.py")
+    )
+    insecure_tls_tokens = (
+        "ssl._create_unverified_context",
+        "ssl.CERT_NONE",
+        "check_hostname = False",
+        "verify=False",
+    )
+    assert not [token for token in insecure_tls_tokens if token in runtime_source]
+    android_network = (
+        ROOT / "src/worktime_tracker/services/android_network_service.py"
+    ).read_text(encoding="utf-8")
+    assert 'jclass("java.net.URL")' in android_network
+    assert 'backend_name = "ANDROID_NATIVE"' in android_network
     policy = json.loads(
         (ROOT / "android/backup_policy.json").read_text(encoding="utf-8")
     )

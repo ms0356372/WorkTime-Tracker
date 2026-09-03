@@ -1,4 +1,4 @@
-"""v0.8.1 semantic resource selection and resilient fallback regressions."""
+"""v0.8.2 semantic selection, fallback, and TLS diagnostic regressions."""
 
 import json
 from datetime import date
@@ -171,3 +171,22 @@ def test_resource_not_found_and_year_mismatch_have_actionable_diagnostics(tmp_pa
     mismatch = calendar.sync_year(2026)
     assert mismatch.error_code == "YEAR_MISMATCH"
     assert "不包含 2026 年" in mismatch.error_message
+
+
+def test_ssl_certificate_error_is_not_reported_as_generic_network(tmp_path):
+    import ssl
+
+    _, calendar = service(tmp_path)
+    calendar.fetcher = lambda url: (_ for _ in ()).throw(
+        ssl.SSLCertVerificationError("Missing Subject Key Identifier")
+    )
+    result = calendar.sync_year(2026)
+    assert result.error_code == "SSL_CERTIFICATE_ERROR"
+    assert result.error_message == "安全連線驗證失敗：無法驗證政府資料網站的安全憑證。"
+
+
+def test_sync_years_are_previous_then_current_gregorian_year():
+    from worktime_tracker.services.work_calendar_service import holiday_sync_years
+
+    assert holiday_sync_years(date(2026, 9, 3)) == (2025, 2026)
+    assert holiday_sync_years(date(2027, 1, 1)) == (2026, 2027)

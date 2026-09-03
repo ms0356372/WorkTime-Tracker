@@ -1,5 +1,6 @@
 """Responsive settings, annual leave, and conversion controls."""
 
+import asyncio
 from datetime import date, datetime
 from pathlib import Path
 import traceback
@@ -10,6 +11,7 @@ from worktime_tracker.models import DeductionPriority, LeaveType
 from worktime_tracker.services.leave_conversion_service import LeaveConversionService
 from worktime_tracker.services.record_service import WorkRecordService
 from worktime_tracker.services.worktime_calculator import validate_lunch_break
+from worktime_tracker.services.work_calendar_service import holiday_sync_years
 from worktime_tracker.services.backup_service import (
     backup_filename,
     create_backup,
@@ -257,8 +259,11 @@ class SettingsView:
     async def sync_holidays(self, widget):
         if not self.calendar:
             return
-        years = (date.today().year, date.today().year + 1)
-        results = [self.calendar.sync_year(year) for year in years]
+        years = holiday_sync_years(date.today())
+        results = []
+        for year in years:
+            # Native Android networking must not run on the UI thread.
+            results.append(await asyncio.to_thread(self.calendar.sync_year, year))
         self.refresh()
         succeeded = [result for result in results if result.success]
         title = "國定假日更新結果"
@@ -324,7 +329,12 @@ class SettingsView:
         else:
             self.leave_year_summary.text = "目前年度：尚未設定特休結算日"
         if self.calendar:
-            statuses = self.calendar.holidays.status()
+            visible_years = set(holiday_sync_years(date.today()))
+            statuses = [
+                row
+                for row in self.calendar.holidays.status()
+                if row["year"] in visible_years
+            ]
             if statuses:
                 source_names = {
                     "DGPA_PACKAGED": "內建官方資料",
