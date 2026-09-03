@@ -7,10 +7,11 @@
 - 首頁可依本月、指定月份、本年度或全部紀錄匯出人類可閱讀的 `.xlsx` 報表。
 - 設定頁提供版本化 `.worktimebackup` 完整備份與安全還原；Excel 僅供報表使用，不能作為還原來源。
 - Android 匯出與備份使用系統檔案選擇器，不要求所有檔案存取權或傳統外部儲存權限。
+- Android 系統 Auto Backup/Auto Restore 已停用；一般覆蓋升級仍保留本機 SQLite，解除安裝後的資料移轉則使用 `.worktimebackup`。
 
 - 每日上下班、實際午休重疊、跨日班與基準工時計算。
 - 補休優先、特休其次的可重算流水帳，以及可設定的月上限/月結規則。
-- 七日疲累指數、月/年統計、五工作表 XLSX、完整 JSON 備份還原。
+- 七日疲累指數、月/年統計、四工作表 XLSX、版本化完整備份還原。
 - `models/`、`services/`、`database/`、`views/` 與 `platform/` 分離，GUI callback 不含核心公式。
 - SQLite `PRAGMA user_version` migration 與 transaction 保護寫入/還原。
 
@@ -67,6 +68,8 @@ python generate_demo_data.py
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
 `python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.7.0-release.apk` 或 `工時管家-0.7.0-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+
+Windows 雙擊 `build_android.bat` 可選擇只建置、建置後安裝或 Clean Install。Clean Install 會二次確認後執行 `adb shell pm clear tw.app.worktime.worktime_tracker`，永久清除裝置上的 App 資料，再安裝新 Debug APK。
 
 ### `BackendUnavailable` 修復
 

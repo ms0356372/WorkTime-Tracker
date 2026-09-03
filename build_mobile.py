@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.metadata
+import json
 import os
 import platform
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tomllib
 import zipfile
+import xml.etree.ElementTree as ET
 from typing import NamedTuple
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,11 @@ SIGNING_ENV_VARS = (
     "ANDROID_KEY_PASSWORD",
 )
 MATERIAL_DEPENDENCY = "com.google.android.material:material:1.12.0"
+ANDROID_APP_ID = "tw.app.worktime.worktime_tracker"
+ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+BACKUP_POLICY = ROOT / "android" / "backup_policy.json"
+BACKUP_RULES = ROOT / "android" / "backup_rules.xml"
+BACKUP_RULES_LEGACY = ROOT / "android" / "backup_rules_legacy.xml"
 
 
 class ApkInspection(NamedTuple):
@@ -287,6 +294,11 @@ def validate_configuration() -> None:
         raise RuntimeError(
             f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}."
         )
+    policy = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))
+    if policy.get("application_attributes", {}).get("allowBackup") != "false":
+        raise RuntimeError("Android backup policy must set allowBackup to false.")
+    for rules in (BACKUP_RULES, BACKUP_RULES_LEGACY):
+        ET.parse(rules)
 
 
 def validate_generated_gradle_dependencies() -> None:
@@ -311,6 +323,67 @@ def validate_generated_gradle_dependencies() -> None:
         f"Android Gradle dependency verified: implementation '{MATERIAL_DEPENDENCY}'",
         flush=True,
     )
+
+
+def android_manifests() -> list[Path]:
+    """Find generated application manifests without assuming an app folder name."""
+    if not BUILD.exists():
+        return []
+    return sorted(
+        path
+        for path in BUILD.rglob("AndroidManifest.xml")
+        if path.parent.name == "main" and path.parent.parent.name == "src"
+    )
+
+
+def configure_android_backup_policy() -> None:
+    """Reapply the repository-owned policy after every Briefcase create/update."""
+    attributes = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))[
+        "application_attributes"
+    ]
+    manifests = android_manifests()
+    if not manifests:
+        raise RuntimeError("Generated Android application manifest was not found.")
+    ET.register_namespace("android", ANDROID_NAMESPACE)
+    for manifest in manifests:
+        tree = ET.parse(manifest)
+        application = tree.getroot().find("application")
+        if application is None:
+            raise RuntimeError(
+                f"Android manifest has no application element: {manifest}"
+            )
+        for name, value in attributes.items():
+            application.set(f"{{{ANDROID_NAMESPACE}}}{name}", value)
+        resource_directory = manifest.parent / "res" / "xml"
+        resource_directory.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(BACKUP_RULES, resource_directory / BACKUP_RULES.name)
+        shutil.copy2(
+            BACKUP_RULES_LEGACY,
+            resource_directory / BACKUP_RULES_LEGACY.name,
+        )
+        tree.write(manifest, encoding="utf-8", xml_declaration=True)
+    validate_android_backup_policy()
+
+
+def validate_android_backup_policy() -> None:
+    expected = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))[
+        "application_attributes"
+    ]
+    for manifest in android_manifests():
+        application = ET.parse(manifest).getroot().find("application")
+        if application is None or any(
+            application.get(f"{{{ANDROID_NAMESPACE}}}{name}") != value
+            for name, value in expected.items()
+        ):
+            raise RuntimeError(f"Android automatic backup is not disabled: {manifest}")
+        resource_directory = manifest.parent / "res" / "xml"
+        for rules in (BACKUP_RULES, BACKUP_RULES_LEGACY):
+            generated = resource_directory / rules.name
+            if not generated.is_file() or generated.read_bytes() != rules.read_bytes():
+                raise RuntimeError(
+                    f"Generated Android backup rules are missing: {generated}"
+                )
+    print("Android Auto Backup/Restore policy verified: DISABLED", flush=True)
 
 
 def doctor() -> int:
@@ -450,6 +523,33 @@ def install_debug_apk(apk: Path) -> None:
     run_command([adb, "install", "-r", str(apk)])
 
 
+def clean_install_debug_apk(apk: Path) -> None:
+    """Clear installed app data before reinstalling; no device is not a build error."""
+    adb = shutil.which("adb")
+    if not adb:
+        print("ADB not available. APK is ready for manual installation.")
+        return
+    result = subprocess.run(
+        [adb, "devices"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    devices = [
+        line.split()[0]
+        for line in result.stdout.splitlines()[1:]
+        if line.strip().endswith("\tdevice")
+    ]
+    if not devices:
+        print("No Android device connected.")
+        print("APK is ready for manual installation.")
+        return
+    print("CLEAN INSTALL: deleting all existing WorkTime Tracker app data.", flush=True)
+    run_command([adb, "shell", "pm", "clear", ANDROID_APP_ID], check=False)
+    run_command([adb, "install", "-r", str(apk)])
+
+
 def print_debug_ready(apk: Path, size: int) -> None:
     print("=" * 40)
     print("ANDROID DEBUG APK READY")
@@ -466,6 +566,7 @@ def build_android(
     mode: str = "debug",
     install: bool = False,
     require_release_signing: bool = False,
+    clean_install: bool = False,
 ) -> int:
     state: dict[str, str] = {"final": "FAIL"}
     try:
@@ -503,6 +604,7 @@ def build_android(
             state["scaffold"] = "CREATE FAIL"
             run_command([sys.executable, "-m", "briefcase", "create", "android"])
             state["scaffold"] = "CREATE PASS"
+        configure_android_backup_policy()
         validate_generated_gradle_dependencies()
         print(f"[BUILD] Building Android {mode} application...", flush=True)
         state["build"] = "FAIL"
@@ -582,7 +684,9 @@ def build_android(
         write_report(state)
         if mode == "debug":
             print_debug_ready(apk, size)
-            if install:
+            if clean_install:
+                clean_install_debug_apk(apk)
+            elif install:
                 install_debug_apk(apk)
         return 0
     except Exception as exc:
@@ -649,6 +753,11 @@ def parse_args() -> argparse.Namespace:
         help="Install the signed debug APK with adb when a device is connected",
     )
     parser.add_argument(
+        "--clean-install",
+        action="store_true",
+        help="Clear all installed app data, then install the signed debug APK",
+    )
+    parser.add_argument(
         "--require-release-signing", action="store_true", help=argparse.SUPPRESS
     )
     return parser.parse_args()
@@ -663,19 +772,29 @@ def main() -> int:
     if args.action == "clean":
         clean_android()
         return 0
-    if args.install and (args.action != "android" or args.mode != "debug"):
-        parser_error = "--install is only valid with 'android --debug'"
+    if (args.install or args.clean_install) and (
+        args.action != "android" or args.mode != "debug"
+    ):
+        parser_error = "--install/--clean-install are only valid with 'android --debug'"
         print(parser_error, file=sys.stderr)
         return 2
     if args.action == "android":
         return build_android(
-            args.clean, args.mode, args.install, args.require_release_signing
+            args.clean,
+            args.mode,
+            args.install,
+            args.require_release_signing,
+            args.clean_install,
         )
     if args.action == "ios":
         return build_ios()
     if args.action == "all":
         android_result = build_android(
-            args.clean, args.mode, args.install, args.require_release_signing
+            args.clean,
+            args.mode,
+            args.install,
+            args.require_release_signing,
+            args.clean_install,
         )
         return android_result or build_ios()
     return 2

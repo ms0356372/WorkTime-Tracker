@@ -1,5 +1,7 @@
-from pathlib import Path
 import importlib.util
+import json
+from pathlib import Path
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -136,6 +138,71 @@ def test_generated_gradle_contains_material_dependency(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     module.validate_generated_gradle_dependencies()
+
+
+def test_android_backup_policy_is_persistent_and_applied_after_update(
+    tmp_path, monkeypatch
+):
+    module = load_build_mobile()
+    monkeypatch.setattr(module, "BUILD", tmp_path)
+    manifest = (
+        tmp_path
+        / "worktime_tracker"
+        / "android"
+        / "gradle"
+        / "app"
+        / "src"
+        / "main"
+        / "AndroidManifest.xml"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application android:label="WorkTime Tracker" /></manifest>',
+        encoding="utf-8",
+    )
+    module.configure_android_backup_policy()
+
+    namespace = "{http://schemas.android.com/apk/res/android}"
+    application = ET.parse(manifest).getroot().find("application")
+    assert application.get(namespace + "allowBackup") == "false"
+    assert (
+        application.get(namespace + "fullBackupContent") == "@xml/backup_rules_legacy"
+    )
+    assert application.get(namespace + "dataExtractionRules") == "@xml/backup_rules"
+    generated = manifest.parent / "res" / "xml"
+    assert (
+        generated / "backup_rules.xml"
+    ).read_bytes() == module.BACKUP_RULES.read_bytes()
+    assert (
+        generated / "backup_rules_legacy.xml"
+    ).read_bytes() == module.BACKUP_RULES_LEGACY.read_bytes()
+    policy = json.loads(module.BACKUP_POLICY.read_text(encoding="utf-8"))
+    assert policy["application_attributes"]["allowBackup"] == "false"
+
+
+def test_clean_install_clears_only_the_app_then_reinstalls(tmp_path, monkeypatch):
+    module = load_build_mobile()
+    apk = tmp_path / "app-debug.apk"
+    apk.write_bytes(b"apk")
+    monkeypatch.setattr(module.shutil, "which", lambda name: "adb")
+
+    class Result:
+        stdout = "List of devices attached\nserial\tdevice\n"
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: Result())
+    commands = []
+    monkeypatch.setattr(
+        module,
+        "run_command",
+        lambda args, **kwargs: commands.append((args, kwargs)) or 0,
+    )
+    module.clean_install_debug_apk(apk)
+    assert commands[0] == (
+        ["adb", "shell", "pm", "clear", "tw.app.worktime.worktime_tracker"],
+        {"check": False},
+    )
+    assert commands[1][0] == ["adb", "install", "-r", str(apk)]
 
 
 def test_unsigned_release_is_not_installable(tmp_path, monkeypatch):
