@@ -34,10 +34,11 @@ class WorkTimeApp(toga.App):
             self.ledger_repository,
             self.settings_repository,
             self.refresh_views,
+            self.show_calendar,
         )
         self.monthly_view = MonthlyRecordsView(
             self.repository,
-            self.records_view.load,
+            self.edit_calendar_record,
             self.ledger_repository,
             self.settings_repository,
             self.refresh_views,
@@ -73,6 +74,15 @@ class WorkTimeApp(toga.App):
             self.settings_view,
         ):
             view.refresh()
+
+    def edit_calendar_record(self, record):
+        """Load a calendar record and navigate to the existing record editor."""
+        self.records_view.load(record)
+        self.tabs.current_tab = 1
+
+    def show_calendar(self):
+        """Return to the calendar without changing its selected month."""
+        self.tabs.current_tab = 2
 
     async def on_tab_select(self, widget):
         self.refresh_views()

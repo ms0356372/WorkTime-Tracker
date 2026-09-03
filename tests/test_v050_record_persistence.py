@@ -95,6 +95,33 @@ def test_same_date_update_rebuilds_instead_of_accumulating_ledger(tmp_path):
     assert len([entry for entry in ledger.all() if entry.source_record_id]) == 1
 
 
+def test_explicit_id_update_keeps_date_and_rebuilds_ledger(tmp_path):
+    _, records, ledger, service = setup(tmp_path)
+    original = save(service, date(2026, 9, 1), "09:00", "20:00")
+    save(service, date(2026, 9, 2), "09:00", "18:00")
+
+    result = service.update(
+        WorkRecord(
+            date(2030, 1, 1),
+            "09:00",
+            "19:00",
+            note="已修改",
+            id=original.id,
+        )
+    )
+
+    assert len(records.all()) == 2
+    assert result.record.work_date == date(2026, 9, 1)
+    assert records.get_by_id(original.id).note == "已修改"
+    assert records.get_by_date(date(2030, 1, 1)) is None
+    assert ledger.current_balances()[0] == 60
+    original_entries = [
+        entry for entry in ledger.all() if entry.source_record_id == original.id
+    ]
+    assert len(original_entries) == 1
+    assert original_entries[0].comp_change == 60
+
+
 def test_schema_and_repository_sql_are_date_scoped(tmp_path):
     db, _, _, _ = setup(tmp_path)
     indexes = db.connection.execute("PRAGMA index_list(work_records)").fetchall()

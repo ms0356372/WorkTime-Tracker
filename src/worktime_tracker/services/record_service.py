@@ -33,6 +33,21 @@ class WorkRecordService:
         difference = calculate_daily_difference(actual, record.standard_minutes)
         return RecordResult(record, actual, max(difference, 0), max(-difference, 0))
 
+    def update(self, record: WorkRecord) -> RecordResult:
+        """Update an existing record by ID and deterministically rebuild balances."""
+        if record.id is None:
+            raise ValueError("更新工時紀錄時必須提供 record ID。")
+        existing = self.records.get_by_id(record.id)
+        if existing is None:
+            raise ValueError("找不到要更新的工時紀錄。")
+        record.work_date = existing.work_date
+        record.break_start, record.break_end = self.settings.lunch_break()
+        actual = calculate_work_minutes(record)
+        self.records.update(record)
+        self.rebuild_ledger()
+        difference = calculate_daily_difference(actual, record.standard_minutes)
+        return RecordResult(record, actual, max(difference, 0), max(-difference, 0))
+
     def delete(self, record_id: int) -> None:
         with self.records.db.transaction() as con:
             con.execute(

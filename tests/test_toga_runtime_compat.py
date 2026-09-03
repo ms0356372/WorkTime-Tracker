@@ -5,7 +5,7 @@ import asyncio
 import importlib
 import sys
 import types
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from worktime_tracker.models import DeductionPriority, WorkRecord
 
@@ -67,6 +67,8 @@ def install_fake_toga(monkeypatch):
         "TextInput",
         "TimeInput",
         "ConfirmDialog",
+        "InfoDialog",
+        "ErrorDialog",
     ):
         setattr(toga, name, type(name, (Widget,), {}))
     toga.Box = Box
@@ -327,3 +329,64 @@ def test_monthly_cards_use_central_calculator_and_selected_month(monkeypatch):
     assert requested[-1] == (2026, 9)
     assert calculated == [3, 2, 1]
     assert view.list.children[0].children[0].children[1].text == "工時 2 小時 3 分"
+
+
+def test_records_view_has_explicit_edit_and_cancel_modes(monkeypatch):
+    install_fake_toga(monkeypatch)
+    module = load_view("worktime_tracker.views.records_view")
+    record = WorkRecord(date(2026, 9, 1), "07:00", "17:00", note="原備註", id=9)
+    view = module.RecordsView(
+        RecordRepository(), LedgerRepository(), SettingsRepository()
+    )
+    view.build()
+    view.load(record)
+
+    assert view.editing_record_id == 9
+    assert view.editing_record_date == date(2026, 9, 1)
+    assert view.heading.text == "編輯紀錄－2026/09/01"
+    assert view.save_button.text == "儲存修改"
+    assert view.cancel_button.enabled is True
+    assert view.date.enabled is False
+    assert view.note.value == "原備註"
+
+    view.cancel_edit()
+    assert view.editing_record_id is None
+    assert view.heading.text == "新增每日紀錄"
+    assert view.save_button.text == "儲存紀錄"
+    assert view.cancel_button.enabled is False
+    assert view.date.enabled is True
+
+
+def test_records_edit_updates_then_refreshes_and_returns_to_calendar(monkeypatch):
+    install_fake_toga(monkeypatch)
+    module = load_view("worktime_tracker.views.records_view")
+    record = WorkRecord(date(2026, 8, 31), "07:00", "17:00", id=31)
+    events = []
+    view = module.RecordsView(
+        RecordRepository(),
+        LedgerRepository(),
+        SettingsRepository(),
+        lambda: events.append("refresh"),
+        lambda: events.append("calendar"),
+    )
+    view.build()
+
+    class Service:
+        def update(self, updated):
+            events.append(("update", updated.id, updated.work_date, updated.clock_in))
+
+        def today_work_minutes(self):
+            return 0
+
+    view.service = Service()
+    view.load(record)
+    view.start.value = time(8, 0)
+    asyncio.run(view.save(view.save_button))
+
+    assert events == [
+        ("update", 31, date(2026, 8, 31), "08:00"),
+        "refresh",
+        "calendar",
+    ]
+    assert view.editing_record_id is None
+    assert view.heading.text == "新增每日紀錄"

@@ -75,6 +75,35 @@ class WorkRecordRepository:
         ).fetchone()
         return self._map_record(row) if row else None
 
+    def get_by_id(self, record_id: int):
+        row = self.db.connection.execute(
+            "SELECT * FROM work_records WHERE id=?", (record_id,)
+        ).fetchone()
+        return self._map_record(row) if row else None
+
+    def update(self, record: WorkRecord) -> None:
+        """Update one existing record by identity without changing its date."""
+        if record.id is None:
+            raise ValueError("更新工時紀錄時必須提供 record ID。")
+        with self.db.transaction() as con:
+            cursor = con.execute(
+                "UPDATE work_records SET clock_in=?,clock_out=?,break_start=?,break_end=?,deduct_break=?,standard_minutes=?,note=?,workday_type=?,overnight=? WHERE id=?",
+                (
+                    record.clock_in,
+                    record.clock_out,
+                    record.break_start,
+                    record.break_end,
+                    int(record.deduct_break),
+                    record.standard_minutes,
+                    record.note,
+                    str(record.workday_type),
+                    int(record.overnight),
+                    record.id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("找不到要更新的工時紀錄。")
+
     def exists_by_date(self, work_date: date) -> bool:
         return (
             self.db.connection.execute(

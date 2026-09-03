@@ -47,3 +47,10 @@ def test_startup_never_assigns_option_container_content_property():
         and target.attr == "content"
     ]
     assert invalid_targets == []
+
+
+def test_calendar_edit_uses_supported_option_container_tab_selection():
+    source = APP_SOURCE.read_text(encoding="utf-8")
+    assert "self.records_view.load(record)" in source
+    assert "self.tabs.current_tab = 1" in source
+    assert "self.tabs.current_tab = 2" in source
