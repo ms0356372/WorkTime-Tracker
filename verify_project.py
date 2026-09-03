@@ -1,31 +1,74 @@
 """Ten-step project verification, including Windows batch and build configuration."""
+
 from __future__ import annotations
 import compileall
 import importlib
+import json
 import subprocess
 import sys
 import tempfile
 import tomllib
+import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+MATERIAL_DEPENDENCY = "com.google.android.material:material:1.12.0"
 sys.path.insert(0, str(ROOT / "src"))
+
 
 def checked(command: list[str]) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
+
 def main() -> int:
     results: dict[str, str] = {}
     steps = [
-        ("Python Syntax", lambda: compileall.compile_dir(ROOT / "src", quiet=1) and compileall.compile_file(ROOT / "build_mobile.py", quiet=1)),
-        ("Import Check", lambda: importlib.import_module("worktime_tracker.services.worktime_calculator")),
+        (
+            "Python Syntax",
+            lambda: (
+                compileall.compile_dir(ROOT / "src", quiet=1)
+                and compileall.compile_file(ROOT / "build_mobile.py", quiet=1)
+            ),
+        ),
+        (
+            "Import Check",
+            lambda: importlib.import_module(
+                "worktime_tracker.services.worktime_calculator"
+            ),
+        ),
         ("Database Check", database_check),
-        ("Worktime Calculator Tests", lambda: checked([sys.executable, "-m", "pytest", "-q", "tests/test_core.py"])),
-        ("Leave Balance Tests", lambda: checked([sys.executable, "-m", "pytest", "-q", "tests/test_leave_conversion.py"])),
-        ("Fatigue Index Tests", lambda: checked([sys.executable, "-m", "pytest", "-q", "tests/test_fatigue_analytics.py"])),
+        (
+            "Worktime Calculator Tests",
+            lambda: checked(
+                [sys.executable, "-m", "pytest", "-q", "tests/test_core.py"]
+            ),
+        ),
+        (
+            "Leave Balance Tests",
+            lambda: checked(
+                [sys.executable, "-m", "pytest", "-q", "tests/test_leave_conversion.py"]
+            ),
+        ),
+        (
+            "Fatigue Index Tests",
+            lambda: checked(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "tests/test_fatigue_analytics.py",
+                ]
+            ),
+        ),
         ("Excel Export Test", excel_check),
-        ("Backup / Restore Test", lambda: checked([sys.executable, "-m", "pytest", "-q", "tests/test_database_backup.py"])),
+        (
+            "Backup / Restore Test",
+            lambda: checked(
+                [sys.executable, "-m", "pytest", "-q", "tests/test_database_backup.py"]
+            ),
+        ),
         ("Dependency Check", dependency_check),
         ("Build and Batch Configuration Check", build_configuration_check),
     ]
@@ -33,45 +76,128 @@ def main() -> int:
         print(f"[{index}/10] {label}", flush=True)
         try:
             outcome = operation()
-            if outcome is False: raise RuntimeError(f"{label} returned False")
+            if outcome is False:
+                raise RuntimeError(f"{label} returned False")
             results[label] = "PASS"
         except Exception as exc:
-            print(f"FAILED STEP: {index}\nERROR: {exc}\nFILE: {getattr(exc, 'filename', 'unknown')}")
+            print(
+                f"FAILED STEP: {index}\nERROR: {exc}\nFILE: {getattr(exc, 'filename', 'unknown')}"
+            )
             return 1
     print("=" * 24)
-    print("PROJECT VERIFICATION\nTests: PASS\nDatabase: PASS\nExcel: PASS\nBackup: PASS\nAndroid Config: PASS\niOS Config: PASS\nBatch Files: PASS")
+    print(
+        "PROJECT VERIFICATION\nTests: PASS\nDatabase: PASS\nExcel: PASS\nBackup: PASS\nAndroid Config: PASS\niOS Config: PASS\nBatch Files: PASS"
+    )
     print("=" * 24)
     return 0
 
+
 def database_check() -> None:
     from worktime_tracker.database import Database
+
     db = Database(":memory:")
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
+
 
 def excel_check() -> None:
     from worktime_tracker.models import WorkRecord
     from worktime_tracker.services.excel_export_service import export_xlsx
+
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "verify.xlsx"
-        export_xlsx(output, [WorkRecord(date(2026, 1, 1), "09:00", "18:00")], [], {}, 2026)
+        export_xlsx(output, [WorkRecord(date(2026, 1, 1), "09:00", "18:00")], [], {})
         assert output.read_bytes()[:2] == b"PK"
+
 
 def dependency_check() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = " ".join(data["project"]["dependencies"]).lower()
-    assert not {"numpy", "pandas", "matplotlib", "scipy"}.intersection(dependencies.split())
+    assert not {"numpy", "pandas", "matplotlib", "scipy"}.intersection(
+        dependencies.split()
+    )
+
 
 def build_configuration_check() -> None:
-    required = ["pyproject.toml", "build_android.bat", "scripts/build_android.bat", "scripts/build_ios.command", "scripts/check_batch_files.py"]
+    required = [
+        "pyproject.toml",
+        "build_android.bat",
+        "scripts/build_android.bat",
+        "scripts/build_ios.command",
+        "scripts/check_batch_files.py",
+        "android/backup_policy.json",
+        "android/backup_rules.xml",
+        "android/backup_rules_legacy.xml",
+    ]
     missing = [path for path in required if not (ROOT / path).is_file()]
-    if missing: raise RuntimeError(f"Missing build files: {missing}")
+    if missing:
+        raise RuntimeError(f"Missing build files: {missing}")
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert data["build-system"]["build-backend"] == "setuptools.build_meta"
     assert "setuptools>=69" in data["build-system"]["requires"]
     app = data["tool"]["briefcase"]["app"]["worktime_tracker"]
     assert "android" in app and "iOS" in app
     assert app["sources"] == ["src/worktime_tracker"]
+    app_source = (ROOT / "src/worktime_tracker/app.py").read_text(encoding="utf-8")
+    if "toga.OptionContainer" in app_source:
+        if "tabs.content" in app_source:
+            raise RuntimeError(
+                "OptionContainer content must be passed to its constructor"
+            )
+        android_dependencies = app["android"].get("build_gradle_dependencies", [])
+        if MATERIAL_DEPENDENCY not in android_dependencies:
+            raise RuntimeError(
+                f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}"
+            )
+    forbidden_dialog_apis = (
+        "toga.OpenFileDialog",
+        "toga.SaveFileDialog",
+        "window.open_file_dialog",
+        "window.save_file_dialog",
+        "multiselect=",
+        "multiple_select=",
+    )
+    dialog_offenders = [
+        f"{path.relative_to(ROOT)}: {token}"
+        for path in (ROOT / "src/worktime_tracker").rglob("*.py")
+        for token in forbidden_dialog_apis
+        if token in path.read_text(encoding="utf-8")
+    ]
+    if dialog_offenders:
+        raise RuntimeError(
+            "Android runtime must use SAF, not Toga file dialogs: "
+            + ", ".join(dialog_offenders)
+        )
+    runtime_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "src/worktime_tracker").rglob("*.py")
+    )
+    insecure_tls_tokens = (
+        "ssl._create_unverified_context",
+        "ssl.CERT_NONE",
+        "check_hostname = False",
+        "verify=False",
+    )
+    assert not [token for token in insecure_tls_tokens if token in runtime_source]
+    android_network = (
+        ROOT / "src/worktime_tracker/services/android_network_service.py"
+    ).read_text(encoding="utf-8")
+    assert 'jclass("java.net.URL")' in android_network
+    assert 'backend_name = "ANDROID_NATIVE"' in android_network
+    policy = json.loads(
+        (ROOT / "android/backup_policy.json").read_text(encoding="utf-8")
+    )
+    attributes = policy.get("application_attributes", {})
+    assert attributes == {
+        "allowBackup": "false",
+        "fullBackupContent": "@xml/backup_rules_legacy",
+        "dataExtractionRules": "@xml/backup_rules",
+    }
+    assert policy.get("uses_permissions") == ["android.permission.INTERNET"]
+    for rules in ("android/backup_rules.xml", "android/backup_rules_legacy.xml"):
+        root = ET.parse(ROOT / rules).getroot()
+        assert root.findall(".//exclude")
     checked([sys.executable, "scripts/check_batch_files.py"])
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
