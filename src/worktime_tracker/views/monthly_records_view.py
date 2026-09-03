@@ -1,17 +1,18 @@
-"""Selectable-month work record list with stable dynamic replacement."""
+"""Selectable-month work record cards with stable dynamic replacement."""
 
-from dataclasses import replace
 from datetime import date
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
-from worktime_tracker.services.worktime_calculator import (
-    calculate_daily_difference,
-    calculate_work_minutes,
-)
+from worktime_tracker.services.worktime_calculator import calculate_work_minutes
 from worktime_tracker.services.record_service import WorkRecordService
 from worktime_tracker.utils.formatting import format_minutes
 from worktime_tracker.utils.months import next_month, previous_month
+
+EDIT_BUTTON_COLOR = "#1976D2"
+DELETE_BUTTON_COLOR = "#D32F2F"
+ACTION_TEXT_COLOR = "#FFFFFF"
+CARD_BACKGROUND_COLOR = "#F5F5F5"
 
 
 class MonthlyRecordsView:
@@ -60,6 +61,80 @@ class MonthlyRecordsView:
         )
         self.refresh()
 
+    @staticmethod
+    def _edit_handler(record, on_edit):
+        def edit_record(widget):
+            on_edit(record)
+
+        return edit_record
+
+    def _delete_handler(self, record):
+        async def delete_record(widget):
+            await self.delete_record(record)
+
+        return delete_record
+
+    async def delete_record(self, record):
+        """Confirm and delete exactly one record through the shared service."""
+        if not self.record_service:
+            return
+        confirmed = await toga.App.app.main_window.dialog(
+            toga.ConfirmDialog(
+                "確認刪除紀錄",
+                f"確定要刪除 {record.work_date.isoformat()} 的工時紀錄嗎？\n\n"
+                "此操作會重新計算補休與特休餘額。",
+            )
+        )
+        if not confirmed:
+            return
+        self.record_service.delete(record.id)
+        self.refresh()
+        if self.on_change:
+            self.on_change()
+
+    def _record_card(self, record):
+        """Build one compact card using the central work-time calculator."""
+        actual = calculate_work_minutes(record)
+        information = toga.Box(
+            children=[
+                toga.Label(f"{record.work_date:%m/%d}"),
+                toga.Label(f"工時 {format_minutes(actual)}"),
+            ],
+            style=Pack(direction=COLUMN, flex=1, gap=4),
+        )
+        actions = toga.Box(
+            children=[
+                toga.Button(
+                    "修改",
+                    on_press=self._edit_handler(record, self.on_edit),
+                    style=Pack(
+                        background_color=EDIT_BUTTON_COLOR,
+                        color=ACTION_TEXT_COLOR,
+                        width=64,
+                    ),
+                ),
+                toga.Button(
+                    "刪除",
+                    on_press=self._delete_handler(record),
+                    style=Pack(
+                        background_color=DELETE_BUTTON_COLOR,
+                        color=ACTION_TEXT_COLOR,
+                        width=64,
+                    ),
+                ),
+            ],
+            style=Pack(direction=ROW, gap=4),
+        )
+        return toga.Box(
+            children=[information, actions],
+            style=Pack(
+                direction=ROW,
+                background_color=CARD_BACKGROUND_COLOR,
+                margin_bottom=8,
+                gap=8,
+            ),
+        )
+
     def refresh(self):
         if not hasattr(self, "list_host"):
             return
@@ -69,66 +144,9 @@ class MonthlyRecordsView:
         )
         children = []
         if not records:
-            children.append(toga.Label("目前此月份沒有工時紀錄。"))
-        for record in records:
-            actual = calculate_work_minutes(record)
-            lunch_deduction = (
-                calculate_work_minutes(replace(record, deduct_break=False)) - actual
-            )
-            diff = calculate_daily_difference(actual, record.standard_minutes)
-            change = (
-                f"補休：+{format_minutes(diff)}"
-                if diff >= 0
-                else f"不足：{format_minutes(-diff)}"
-            )
-
-            async def show_detail(
-                widget,
-                selected=record,
-                work=actual,
-                lunch_minutes=lunch_deduction,
-                delta=change,
-            ):
-                await toga.App.app.main_window.dialog(
-                    toga.InfoDialog(
-                        "工時紀錄詳情",
-                        f"日期：{selected.work_date.isoformat()}\n上班：{selected.clock_in}\n下班：{selected.clock_out}\n午休扣除：{format_minutes(lunch_minutes)}\n實際工作：{format_minutes(work)}\n每日基準：{format_minutes(selected.standard_minutes)}\n{delta}\n備註：{selected.note or '無'}\n\n可使用下方按鈕修改或刪除此筆紀錄。",
-                    )
-                )
-
-            def edit_record(widget, selected=record):
-                self.on_edit(selected)
-
-            async def delete_record(widget, selected=record):
-                if not self.record_service:
-                    return
-                confirmed = await toga.App.app.main_window.dialog(
-                    toga.ConfirmDialog(
-                        "確認刪除紀錄",
-                        f"確定要刪除 {selected.work_date.isoformat()} 的工時紀錄嗎？\n\n"
-                        "此操作會重新計算補休與特休餘額。",
-                    )
-                )
-                if not confirmed:
-                    return
-                self.record_service.delete(selected.id)
-                self.refresh()
-                if self.on_change:
-                    self.on_change()
-
-            children.append(
-                toga.Box(
-                    children=[
-                        toga.Button(
-                            f"{record.work_date:%m/%d}\n{record.clock_in} - {record.clock_out}\n工作：{format_minutes(actual)}\n{change}",
-                            on_press=show_detail,
-                        ),
-                        toga.Button("修改紀錄", on_press=edit_record),
-                        toga.Button("刪除此紀錄", on_press=delete_record),
-                    ],
-                    style=Pack(direction=COLUMN, gap=4),
-                )
-            )
+            children.append(toga.Label("此月份尚無工時紀錄"))
+        else:
+            children.extend(self._record_card(record) for record in records)
         replacement = toga.Box(children=children, style=Pack(direction=COLUMN, gap=8))
         self.list_host.replace(self.list, replacement)
         self.list = replacement

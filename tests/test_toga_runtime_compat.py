@@ -1,6 +1,7 @@
 """Smoke tests for the Toga 0.5 data-source APIs used during startup."""
 
 from __future__ import annotations
+import asyncio
 import importlib
 import sys
 import types
@@ -16,11 +17,16 @@ class ListSource(list):
 
 
 class Widget:
-    def __init__(self, text="", *, items=None, value=None, children=None, **kwargs):
+    def __init__(
+        self, text="", message=None, *, items=None, value=None, children=None, **kwargs
+    ):
         self.text = text
+        self.message = message
         self.value = value
         self.children = Children(children or [])
         self._items = ListSource(items or [])
+        for name, item in kwargs.items():
+            setattr(self, name, item)
 
     @property
     def items(self):
@@ -60,11 +66,18 @@ def install_fake_toga(monkeypatch):
         "Button",
         "TextInput",
         "TimeInput",
+        "ConfirmDialog",
     ):
         setattr(toga, name, type(name, (Widget,), {}))
     toga.Box = Box
     toga.ScrollContainer = ScrollContainer
-    toga.App = type("App", (), {"app": types.SimpleNamespace(main_window=object())})
+    class MainWindow:
+        async def dialog(self, dialog):
+            return True
+
+    toga.App = type(
+        "App", (), {"app": types.SimpleNamespace(main_window=MainWindow())}
+    )
     style = types.ModuleType("toga.style")
     style.Pack = lambda **kwargs: kwargs
     pack = types.ModuleType("toga.style.pack")
@@ -220,3 +233,97 @@ def test_analysis_refresh_recalculates_the_selected_month(monkeypatch):
     assert "出勤天數\n2 天" in view.summary.text
     assert "平均每日工時\n8 小時 30 分" in view.summary.text
     assert "超時\n1 小時 0 分" in view.summary.text
+
+
+def _calendar_rows():
+    return [
+        WorkRecord(date(2026, 9, day), "08:00", "17:00", id=day)
+        for day in (3, 2, 1)
+    ]
+
+
+def test_monthly_records_builds_three_stable_action_cards(monkeypatch):
+    install_fake_toga(monkeypatch)
+    records = RecordRepository()
+    records.records_for_month = lambda year, month: _calendar_rows()
+    module = load_view("worktime_tracker.views.monthly_records_view")
+    view = module.MonthlyRecordsView(records, lambda record: None)
+    view.build()
+
+    for _ in range(10):
+        view.refresh()
+
+    assert len(view.list.children) == 3
+    assert len(view.list_host.children) == 1
+    first_information, first_actions = view.list.children[0].children
+    assert [label.text for label in first_information.children] == [
+        "09/03",
+        "工時 8 小時 0 分",
+    ]
+    assert [button.text for button in first_actions.children] == ["修改", "刪除"]
+    assert first_actions.children[0].style["background_color"] == "#1976D2"
+    assert first_actions.children[1].style["background_color"] == "#D32F2F"
+
+
+def test_monthly_card_edit_keeps_one_updated_card(monkeypatch):
+    install_fake_toga(monkeypatch)
+    records = RecordRepository()
+    row = WorkRecord(date(2026, 9, 3), "08:00", "17:00", id=3)
+    records.records_for_month = lambda year, month: [row]
+    selected = []
+    module = load_view("worktime_tracker.views.monthly_records_view")
+    view = module.MonthlyRecordsView(records, selected.append)
+    view.build()
+
+    edit_button = view.list.children[0].children[1].children[0]
+    edit_button.on_press(edit_button)
+    row.clock_out = "18:00"
+    view.refresh()
+
+    assert selected == [row]
+    assert len(view.list.children) == 1
+    assert view.list.children[0].children[0].children[1].text == "工時 9 小時 0 分"
+
+
+def test_monthly_card_delete_refreshes_without_the_deleted_record(monkeypatch):
+    install_fake_toga(monkeypatch)
+    rows = _calendar_rows()
+    records = RecordRepository()
+    records.records_for_month = lambda year, month: list(rows)
+    module = load_view("worktime_tracker.views.monthly_records_view")
+    view = module.MonthlyRecordsView(records, lambda record: None)
+
+    class RecordService:
+        def delete(self, record_id):
+            rows[:] = [record for record in rows if record.id != record_id]
+
+    view.record_service = RecordService()
+    view.build()
+    asyncio.run(view.delete_record(rows[1]))
+
+    assert [
+        card.children[0].children[0].text for card in view.list.children
+    ] == ["09/03", "09/01"]
+
+
+def test_monthly_cards_use_central_calculator_and_selected_month(monkeypatch):
+    install_fake_toga(monkeypatch)
+    records = RecordRepository()
+    requested = []
+    records.records_for_month = lambda year, month: (
+        requested.append((year, month)) or _calendar_rows()
+    )
+    module = load_view("worktime_tracker.views.monthly_records_view")
+    calculated = []
+    monkeypatch.setattr(
+        module,
+        "calculate_work_minutes",
+        lambda record: calculated.append(record.id) or 123,
+    )
+    view = module.MonthlyRecordsView(records, lambda record: None)
+    view.selected_year, view.selected_month = 2026, 9
+    view.build()
+
+    assert requested[-1] == (2026, 9)
+    assert calculated == [3, 2, 1]
+    assert view.list.children[0].children[0].children[1].text == "工時 2 小時 3 分"

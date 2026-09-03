@@ -96,5 +96,6 @@ def test_delete_is_calendar_only_and_android_regressions_remain():
     )
     config = (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "刪除此紀錄" not in records and "已計入補休" not in records
-    assert "刪除此紀錄" in monthly and "確認刪除紀錄" in monthly
+    assert 'toga.Button(\n                    "刪除"' in monthly
+    assert "確認刪除紀錄" in monthly
     assert "com.google.android.material:material:1.12.0" in config
