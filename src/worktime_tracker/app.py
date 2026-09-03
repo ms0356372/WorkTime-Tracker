@@ -1,6 +1,7 @@
 """BeeWare Toga mobile application composition root."""
 
 from pathlib import Path
+
 import toga
 from toga.style import Pack
 from worktime_tracker.config import APP_NAME
