@@ -6,6 +6,7 @@ from zipfile import ZipFile
 import pytest
 
 from worktime_tracker.models import WorkRecord
+from worktime_tracker.database import CalendarOverrideRepository, Database, OfficialHolidayRepository, SettingsRepository
 from worktime_tracker.services.balance_service import LeaveBalanceService
 from worktime_tracker.services.excel_export_service import export_filename, export_xlsx
 
@@ -88,3 +89,27 @@ def test_leave_year_export_requires_settlement_range(tmp_path):
     records = [WorkRecord(date(2026, 9, 1), "08:00", "17:00")]
     with pytest.raises(ValueError, match="settlement date required"):
         export_xlsx(tmp_path / "missing.xlsx", records, [], {}, "leave_year")
+
+
+def test_excel_includes_calendar_missing_day_and_holiday_standard(tmp_path):
+    db = Database(tmp_path / "calendar.db")
+    settings = SettingsRepository(db)
+    from worktime_tracker.services.work_calendar_service import WorkCalendarService
+
+    calendar = WorkCalendarService(
+        CalendarOverrideRepository(db), OfficialHolidayRepository(db), settings
+    )
+    holiday = date(2026, 9, 7)
+    OfficialHolidayRepository(db).replace_year(2026, [(holiday, "國定假日")], "fixture")
+    record = WorkRecord(holiday, "08:00", "13:00", deduct_break=False, note="假日工作")
+    path = tmp_path / "calendar.xlsx"
+    export_xlsx(
+        path, [record], [], settings, "leave_year",
+        date(2026, 9, 7), date(2026, 9, 9), calendar,
+        date(2026, 9, 7), date(2026, 9, 10),
+    )
+    text = workbook_text(path)
+    assert "日期類型" in text and "標準工時" in text and "狀態" in text
+    assert "國定假日" in text and "假日工作" in text
+    assert "2026/09/08" in text and "2026/09/09" in text
+    assert "無紀錄" in text and "8 小時 0 分" in text

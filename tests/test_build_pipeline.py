@@ -117,9 +117,9 @@ def test_gradle_fallback_checks_java_before_running(monkeypatch):
 
 def test_debug_build_artifact_naming():
     module = load_build_mobile()
-    assert module.artifact_name("debug") == "工時管家-0.7.1-debug.apk"
-    assert module.artifact_name("release") == "工時管家-0.7.1-release-unsigned.apk"
-    assert module.artifact_name("release", signed=True) == "工時管家-0.7.1-release.apk"
+    assert module.artifact_name("debug") == "工時管家-0.8.0-debug.apk"
+    assert module.artifact_name("release") == "工時管家-0.8.0-release-unsigned.apk"
+    assert module.artifact_name("release", signed=True) == "工時管家-0.8.0-release.apk"
 
 
 def test_option_container_material_dependency_is_persistent():
@@ -192,6 +192,11 @@ def test_android_backup_policy_is_persistent_and_applied_after_update(
     ).read_bytes() == module.BACKUP_RULES_LEGACY.read_bytes()
     policy = json.loads(module.BACKUP_POLICY.read_text(encoding="utf-8"))
     assert policy["application_attributes"]["allowBackup"] == "false"
+    root = ET.parse(manifest).getroot()
+    assert any(
+        node.get(namespace + "name") == "android.permission.INTERNET"
+        for node in root.findall("uses-permission")
+    )
 
 
 def test_unsigned_release_is_not_installable(tmp_path, monkeypatch):

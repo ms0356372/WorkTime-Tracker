@@ -2,7 +2,7 @@
 
 from calendar import monthrange
 from collections.abc import Iterable
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from worktime_tracker.models import (
     DeductionPriority,
     LedgerEntry,
@@ -115,6 +115,9 @@ class LeaveBalanceService:
         cap_rule: str = "提醒",
         priority: DeductionPriority = DeductionPriority.COMP_TIME_FIRST,
         manual_transactions: Iterable[LedgerEntry] = (),
+        calendar=None,
+        tracking_start_date: date | None = None,
+        today: date | None = None,
     ) -> list[LedgerEntry]:
         """Rebuild system events, retain manual audit events, then replay chronologically."""
         records = list(records)
@@ -140,12 +143,35 @@ class LeaveBalanceService:
                 )
             )
         record_by_date = {r.work_date: r for r in records}
+        effective_today = today or date.today()
         for record in records:
+            if calendar and record.work_date > effective_today:
+                continue
+            standard = (
+                calendar.standard_minutes_for(record.work_date)
+                if calendar
+                else record.standard_minutes
+            )
             diff = calculate_daily_difference(
-                calculate_work_minutes(record), record.standard_minutes
+                calculate_work_minutes(record), standard
             )
             # Placeholder balance; all snapshots are rebuilt during replay below.
-            events.append(self.apply_worktime_difference(diff, 0, 0, priority, record))
+            event = self.apply_worktime_difference(diff, 0, 0, priority, record)
+            if calendar and standard == 0 and calculate_work_minutes(record) > 0:
+                event.entry_type = "假日工作"
+                event.reason = calendar.day_type(record.work_date)
+            events.append(event)
+        if calendar and tracking_start_date and tracking_start_date < effective_today:
+            for missing_day in calendar.get_missing_workdays(
+                tracking_start_date, effective_today - timedelta(days=1), records
+            ):
+                standard = calendar.standard_minutes_for(missing_day)
+                missing = WorkRecord(missing_day, standard_minutes=standard)
+                event = self.apply_worktime_difference(-standard, 0, 0, priority, missing)
+                event.entry_type = "未登錄工作日"
+                event.reason = "正常上班日無工時紀錄"
+                event.transaction_type = TransactionType.MISSING_WORKDAY_DEDUCTION
+                events.append(event)
         events.sort(key=self._sort_key)
         comp = annual = 0
         rebuilt: list[LedgerEntry] = []
@@ -163,14 +189,24 @@ class LeaveBalanceService:
                     comp += settlement.comp_change
                     rebuilt.append(settlement)
             current_month = month
-            if event.transaction_type == TransactionType.WORKTIME_DEDUCTION:
-                record = record_by_date[event.entry_date]
-                diff = calculate_daily_difference(
-                    calculate_work_minutes(record), record.standard_minutes
+            if event.transaction_type in {
+                TransactionType.WORKTIME_DEDUCTION,
+                TransactionType.MISSING_WORKDAY_DEDUCTION,
+            }:
+                record = record_by_date.get(event.entry_date)
+                standard = (
+                    calendar.standard_minutes_for(event.entry_date)
+                    if calendar
+                    else record.standard_minutes
                 )
-                event = self.apply_worktime_difference(
-                    diff, comp, annual, priority, record
-                )
+                diff = -standard if record is None else calculate_work_minutes(record) - standard
+                source = record or WorkRecord(event.entry_date, standard_minutes=standard)
+                replacement = self.apply_worktime_difference(diff, comp, annual, priority, source)
+                if record is None:
+                    replacement.entry_type = "未登錄工作日"
+                    replacement.reason = "正常上班日無工時紀錄"
+                    replacement.transaction_type = TransactionType.MISSING_WORKDAY_DEDUCTION
+                event = replacement
             comp += event.comp_change
             annual += event.annual_change
             event.comp_balance = comp

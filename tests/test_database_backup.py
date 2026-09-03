@@ -1,14 +1,17 @@
 """Versioned backup, safe restore, corruption, and rollback regressions."""
 
 import json
+import hashlib
 from datetime import date, datetime, timezone
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
 from worktime_tracker.database import (
+    CalendarOverrideRepository,
     Database,
     LedgerRepository,
+    OfficialHolidayRepository,
     SettingsRepository,
     WorkRecordRepository,
 )
@@ -50,6 +53,10 @@ def test_backup_round_trip_restores_sources_unicode_and_derived_balances(tmp_pat
         tmp_path / "source.db"
     )
     expected_balance = source_ledger.current_balances()
+    CalendarOverrideRepository(source).save(date(2026, 9, 5), "WORKDAY", "公司補班")
+    OfficialHolidayRepository(source).replace_year(
+        2026, [(date(2026, 10, 9), "國慶日補假")], "fixture"
+    )
     backup = create_backup(
         source,
         tmp_path / "transfer.worktimebackup",
@@ -57,7 +64,7 @@ def test_backup_round_trip_restores_sources_unicode_and_derived_balances(tmp_pat
     )
     manifest, data = inspect_backup(backup)
     assert manifest["format_name"] == "WorkTimeTrackerBackup"
-    assert manifest["backup_format_version"] == 1
+    assert manifest["backup_format_version"] == 2
     assert manifest["record_count"] == 3
     assert len(data["manual_ledger_events"]) == 1
     with ZipFile(backup) as archive:
@@ -72,6 +79,8 @@ def test_backup_round_trip_restores_sources_unicode_and_derived_balances(tmp_pat
     assert [record.note for record in restored_records] == ["客戶會議", "外勤", "加班"]
     assert restored_settings.lunch_break() == ("12:00", "12:30")
     assert restored_settings.get("annual_leave_total_minutes") == "4800"
+    assert CalendarOverrideRepository(target).get(date(2026, 9, 5))["note"] == "公司補班"
+    assert OfficialHolidayRepository(target).get(date(2026, 10, 9))["name"] == "國慶日補假"
     assert restored_ledger.current_balances() == expected_balance
     assert (
         len([entry for entry in restored_ledger.all() if entry.source_record_id]) == 3
@@ -148,3 +157,29 @@ def test_restore_exception_rolls_back_and_keeps_pre_restore_snapshot(tmp_path):
     snapshots = list((tmp_path / "safety").glob("工時管家_還原前備份_*.worktimebackup"))
     assert len(snapshots) == 1
     assert inspect_backup(snapshots[0])[0]["record_count"] == 3
+
+
+def test_v1_backup_restores_with_safe_calendar_defaults(tmp_path):
+    source, _, _, _ = populated_database(tmp_path / "source-v1.db")
+    modern = create_backup(source, tmp_path / "modern.worktimebackup")
+    with ZipFile(modern) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        data = json.loads(archive.read("data.json"))
+    data["tables"].pop("calendar_overrides")
+    data["tables"].pop("official_holidays")
+    data["tables"]["settings"] = [
+        row for row in data["tables"]["settings"]
+        if row["key"] != "work_tracking_start_date"
+    ]
+    data_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    manifest["backup_format_version"] = 1
+    manifest["data_sha256"] = hashlib.sha256(data_bytes).hexdigest()
+    legacy = tmp_path / "legacy.worktimebackup"
+    with ZipFile(legacy, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest).encode())
+        archive.writestr("data.json", data_bytes)
+    target = Database(tmp_path / "target-v1.db")
+    restore_backup(target, legacy, tmp_path / "safety-v1")
+    assert len(WorkRecordRepository(target).all()) == 3
+    assert SettingsRepository(target).get("work_tracking_start_date") == date.today().isoformat()
+    assert CalendarOverrideRepository(target).all() == []

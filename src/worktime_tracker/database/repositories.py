@@ -1,6 +1,6 @@
 """Persistence repositories with immediate transactional writes."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from worktime_tracker.models import (
     DeductionPriority,
     LedgerEntry,
@@ -191,6 +191,76 @@ class SettingsRepository:
                 (end,),
             )
 
+    def tracking_start_date(self, today: date | None = None) -> date:
+        """Return a migration-safe start date, initializing it without backdating."""
+        value = self.get("work_tracking_start_date")
+        if value:
+            return date.fromisoformat(value)
+        start = today or date.today()
+        self.set("work_tracking_start_date", start.isoformat())
+        return start
+
+
+class CalendarOverrideRepository:
+    def __init__(self, db):
+        self.db = db
+
+    def get(self, day: date):
+        return self.db.connection.execute(
+            "SELECT * FROM calendar_overrides WHERE work_date=?", (day.isoformat(),)
+        ).fetchone()
+
+    def all(self):
+        return list(self.db.connection.execute(
+            "SELECT * FROM calendar_overrides ORDER BY work_date DESC"
+        ))
+
+    def save(self, day: date, day_type: str, note: str = "") -> None:
+        if day_type not in {"WORKDAY", "NON_WORKDAY"}:
+            raise ValueError("特殊日期類型無效。")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.transaction() as con:
+            con.execute(
+                "INSERT INTO calendar_overrides(work_date,day_type,note,created_at,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(work_date) DO UPDATE SET "
+                "day_type=excluded.day_type,note=excluded.note,updated_at=excluded.updated_at",
+                (day.isoformat(), day_type, note, now, now),
+            )
+
+    def delete(self, day: date) -> None:
+        with self.db.transaction() as con:
+            con.execute("DELETE FROM calendar_overrides WHERE work_date=?", (day.isoformat(),))
+
+
+class OfficialHolidayRepository:
+    def __init__(self, db):
+        self.db = db
+
+    def get(self, day: date):
+        return self.db.connection.execute(
+            "SELECT * FROM official_holidays WHERE holiday_date=?", (day.isoformat(),)
+        ).fetchone()
+
+    def for_year(self, year: int):
+        return list(self.db.connection.execute(
+            "SELECT * FROM official_holidays WHERE year=? ORDER BY holiday_date", (year,)
+        ))
+
+    def replace_year(self, year: int, holidays, source: str, synced_at=None) -> None:
+        stamp = (synced_at or datetime.now(timezone.utc)).isoformat()
+        with self.db.transaction() as con:
+            con.execute("DELETE FROM official_holidays WHERE year=?", (year,))
+            con.executemany(
+                "INSERT INTO official_holidays(holiday_date,name,year,source,synced_at) VALUES(?,?,?,?,?)",
+                [(day.isoformat(), name, year, source, stamp) for day, name in holidays],
+            )
+
+    def status(self):
+        return list(self.db.connection.execute(
+            "SELECT year,COUNT(*) AS holiday_count,MAX(synced_at) AS synced_at "
+            "FROM official_holidays GROUP BY year ORDER BY year"
+        ))
+
 
 class LedgerRepository:
     def __init__(self, db):
@@ -271,6 +341,9 @@ class LedgerRepository:
         records,
         annual_opening=0,
         priority=DeductionPriority.COMP_TIME_FIRST,
+        calendar=None,
+        tracking_start_date=None,
+        today=None,
     ):
         """Atomically replace derived events while preserving manual audit events."""
         manual = self.all(LedgerOrigin.MANUAL)
@@ -279,6 +352,9 @@ class LedgerRepository:
             annual_opening=annual_opening,
             priority=priority,
             manual_transactions=manual,
+            calendar=calendar,
+            tracking_start_date=tracking_start_date,
+            today=today,
         )
         with self.db.transaction() as con:
             con.execute(

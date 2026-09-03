@@ -6,11 +6,14 @@ import toga
 from toga.style import Pack
 from worktime_tracker.config import APP_NAME
 from worktime_tracker.database import (
+    CalendarOverrideRepository,
     Database,
     LedgerRepository,
+    OfficialHolidayRepository,
     SettingsRepository,
     WorkRecordRepository,
 )
+from worktime_tracker.services.work_calendar_service import WorkCalendarService
 from worktime_tracker.views.analysis_view import AnalysisView
 from worktime_tracker.views.dashboard_view import DashboardView
 from worktime_tracker.views.monthly_records_view import MonthlyRecordsView
@@ -28,11 +31,18 @@ class WorkTimeApp(toga.App):
         self.repository = WorkRecordRepository(self.db)
         self.settings_repository = SettingsRepository(self.db)
         self.ledger_repository = LedgerRepository(self.db)
+        self.calendar = WorkCalendarService(
+            CalendarOverrideRepository(self.db),
+            OfficialHolidayRepository(self.db),
+            self.settings_repository,
+        )
+        self.settings_repository.tracking_start_date()
         self.dashboard_view = DashboardView(
             self.repository,
             self.ledger_repository,
             self.settings_repository,
             data_dir / "exports",
+            self.calendar,
         )
         self.records_view = RecordsView(
             self.repository,
@@ -48,13 +58,17 @@ class WorkTimeApp(toga.App):
             self.settings_repository,
             self.refresh_views,
         )
-        self.analysis_view = AnalysisView(self.repository, self.ledger_repository)
+        self.analysis_view = AnalysisView(
+            self.repository, self.ledger_repository, self.calendar,
+            self.settings_repository,
+        )
         self.settings_view = SettingsView(
             self.settings_repository,
             self.ledger_repository,
             self.repository,
             self.refresh_views,
             data_dir,
+            self.calendar,
         )
         self.tabs = toga.OptionContainer(
             content=[
@@ -96,3 +110,4 @@ class WorkTimeApp(toga.App):
 
 def main():
     return WorkTimeApp()
+    OfficialHolidayRepository,

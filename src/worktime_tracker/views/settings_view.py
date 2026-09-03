@@ -29,6 +29,7 @@ class SettingsView:
         records_repository=None,
         on_change=None,
         data_directory=None,
+        calendar=None,
     ):
         self.settings = settings_repository
         self.ledger = ledger_repository
@@ -36,11 +37,13 @@ class SettingsView:
         self.on_change = on_change
         self.conversions = LeaveConversionService()
         self.data_directory = Path(data_directory) if data_directory else None
+        self.calendar = calendar
 
     def build(self):
         self.app = toga.App.app
         current = self.settings.deduction_priority()
         total = int(self.settings.get("annual_leave_total_minutes", "0") or 0)
+        daily_standard = int(self.settings.get("daily_standard_minutes", "480") or 480)
         settlement = self.settings.get(
             "annual_leave_settlement_date", f"{date.today().year}-12-31"
         )
@@ -52,6 +55,7 @@ class SettingsView:
             on_change=self.change_priority,
         )
         self.annual_hours = toga.NumberInput(min=0, step=1, value=total // 60)
+        self.daily_hours = toga.NumberInput(min=1, step=1, value=daily_standard // 60)
         self.settlement = toga.DateInput(value=date.fromisoformat(settlement))
         self.leave_year_summary = toga.Label("")
         self.annual_summary = toga.Label("")
@@ -71,7 +75,21 @@ class SettingsView:
         self.note = toga.TextInput(placeholder="備註（選填）")
         self.balances = toga.Label("")
         self.history = toga.Selection(items=self._history_items())
+        tracking_start = (
+            self.settings.tracking_start_date()
+            if hasattr(self.settings, "tracking_start_date")
+            else date.today()
+        )
+        self.tracking_start = toga.DateInput(value=tracking_start)
+        self.calendar_status = toga.Label("")
+        self.override_date = toga.DateInput(value=date.today())
+        self.override_type = toga.Selection(items=["上班日", "非上班日"], value="非上班日")
+        self.override_note = toga.TextInput(placeholder="公司補班／公司休假")
+        self.override_history = toga.Selection(items=[])
         children = [
+            toga.Label("每日標準工時（小時）"),
+            self.daily_hours,
+            toga.Button("儲存每日標準工時", on_press=self.save_daily_standard),
             toga.Label("工時不足扣除順序"),
             self.priority,
             toga.Label("年度特休"),
@@ -91,6 +109,22 @@ class SettingsView:
             toga.Label("午休結束時間"),
             self.lunch_end,
             toga.Button("儲存午休設定", on_press=self.save_lunch_break),
+            toga.Label("工作日曆"),
+            toga.Label("基本工作日：星期一～星期五"),
+            toga.Label("國定假日：使用台灣政府官方行事曆"),
+            self.calendar_status,
+            toga.Button("更新國定假日", on_press=self.sync_holidays),
+            toga.Label("工時計算起始日"),
+            self.tracking_start,
+            toga.Label("起始日之後的正常上班日，若整天沒有工時紀錄，將視為不足每日標準工時。"),
+            toga.Button("儲存工時計算起始日", on_press=self.save_tracking_start),
+            toga.Label("特殊日期"),
+            self.override_date,
+            self.override_type,
+            self.override_note,
+            toga.Button("新增特殊日期", on_press=self.save_override),
+            self.override_history,
+            toga.Button("刪除選取的特殊日期", on_press=self.delete_override),
             toga.Label("補休 / 特休轉換"),
             toga.Label("轉換來源"),
             self.source,
@@ -127,6 +161,20 @@ class SettingsView:
         self.settings.set("leave_deduction_priority", str(value))
         if self.records:
             WorkRecordService(self.records, self.ledger, self.settings).rebuild_ledger()
+        self._notify()
+
+    async def save_daily_standard(self, widget):
+        minutes = int(self.daily_hours.value or 0) * 60
+        if minutes <= 0:
+            await self.app.main_window.dialog(
+                toga.ErrorDialog("無法儲存", "每日標準工時必須大於 0。")
+            )
+            return
+        self.settings.set("daily_standard_minutes", str(minutes))
+        if self.records:
+            WorkRecordService(
+                self.records, self.ledger, self.settings, self.calendar
+            ).rebuild_ledger()
         self._notify()
 
     async def change_source(self, widget):
@@ -197,6 +245,48 @@ class SettingsView:
         except Exception as exc:
             await self.app.main_window.dialog(toga.ErrorDialog("無法轉換", str(exc)))
 
+    async def save_tracking_start(self, widget):
+        if self.tracking_start.value > date.today():
+            await self.app.main_window.dialog(toga.ErrorDialog("無法儲存", "工時計算起始日不能晚於今天。"))
+            return
+        self.settings.set("work_tracking_start_date", self.tracking_start.value.isoformat())
+        if self.records:
+            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
+        self._notify()
+
+    async def sync_holidays(self, widget):
+        if not self.calendar:
+            return
+        years = (date.today().year, date.today().year + 1)
+        succeeded = [self.calendar.sync_year(year) for year in years]
+        self.refresh()
+        title = "國定假日已更新" if any(succeeded) else "國定假日資料更新失敗"
+        message = "已使用最新官方資料。" if any(succeeded) else "目前使用本機已儲存資料。"
+        await self.app.main_window.dialog(toga.InfoDialog(title, message))
+        if any(succeeded) and self.records:
+            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
+            self._notify()
+
+    async def save_override(self, widget):
+        if not self.calendar:
+            return
+        kind = "WORKDAY" if self.override_type.value == "上班日" else "NON_WORKDAY"
+        self.calendar.overrides.save(self.override_date.value, kind, self.override_note.value)
+        if self.records:
+            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
+        self.refresh()
+        self._notify()
+
+    async def delete_override(self, widget):
+        if not self.calendar or not self.override_history.value:
+            return
+        selected = date.fromisoformat(self.override_history.value.split("｜", 1)[0])
+        self.calendar.overrides.delete(selected)
+        if self.records:
+            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
+        self.refresh()
+        self._notify()
+
     def _history_items(self):
         return [
             f"#{e.id}｜{e.entry_date.isoformat()}｜{e.entry_type}｜{e.source_minutes or 0} 分"
@@ -227,6 +317,15 @@ class SettingsView:
             )
         else:
             self.leave_year_summary.text = "目前年度：尚未設定特休結算日"
+        if self.calendar:
+            statuses = self.calendar.holidays.status()
+            self.calendar_status.text = "\n".join(
+                f"{row['year']}：已更新（{row['holiday_count']} 日）" for row in statuses
+            ) or "尚無本機國定假日資料"
+            self.override_history.items = [
+                f"{row['work_date']}｜{'上班日' if row['day_type'] == 'WORKDAY' else '非上班日'}｜{row['note']}"
+                for row in self.calendar.overrides.all()
+            ]
 
     def _notify(self):
         if self.on_change:

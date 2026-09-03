@@ -337,22 +337,31 @@ def android_manifests() -> list[Path]:
 
 def configure_android_backup_policy() -> None:
     """Reapply the repository-owned policy after every Briefcase create/update."""
-    attributes = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))[
-        "application_attributes"
-    ]
+    policy = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))
+    attributes = policy["application_attributes"]
     manifests = android_manifests()
     if not manifests:
         raise RuntimeError("Generated Android application manifest was not found.")
     ET.register_namespace("android", ANDROID_NAMESPACE)
     for manifest in manifests:
         tree = ET.parse(manifest)
-        application = tree.getroot().find("application")
+        root = tree.getroot()
+        application = root.find("application")
         if application is None:
             raise RuntimeError(
                 f"Android manifest has no application element: {manifest}"
             )
         for name, value in attributes.items():
             application.set(f"{{{ANDROID_NAMESPACE}}}{name}", value)
+        existing_permissions = {
+            node.get(f"{{{ANDROID_NAMESPACE}}}name")
+            for node in root.findall("uses-permission")
+        }
+        for permission in policy.get("uses_permissions", []):
+            if permission not in existing_permissions:
+                node = ET.Element("uses-permission")
+                node.set(f"{{{ANDROID_NAMESPACE}}}name", permission)
+                root.insert(0, node)
         resource_directory = manifest.parent / "res" / "xml"
         resource_directory.mkdir(parents=True, exist_ok=True)
         shutil.copy2(BACKUP_RULES, resource_directory / BACKUP_RULES.name)
@@ -365,16 +374,22 @@ def configure_android_backup_policy() -> None:
 
 
 def validate_android_backup_policy() -> None:
-    expected = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))[
-        "application_attributes"
-    ]
+    policy = json.loads(BACKUP_POLICY.read_text(encoding="utf-8"))
+    expected = policy["application_attributes"]
     for manifest in android_manifests():
-        application = ET.parse(manifest).getroot().find("application")
+        root = ET.parse(manifest).getroot()
+        application = root.find("application")
         if application is None or any(
             application.get(f"{{{ANDROID_NAMESPACE}}}{name}") != value
             for name, value in expected.items()
         ):
             raise RuntimeError(f"Android automatic backup is not disabled: {manifest}")
+        permissions = {
+            node.get(f"{{{ANDROID_NAMESPACE}}}name")
+            for node in root.findall("uses-permission")
+        }
+        if not set(policy.get("uses_permissions", [])).issubset(permissions):
+            raise RuntimeError(f"Android INTERNET permission is missing: {manifest}")
         resource_directory = manifest.parent / "res" / "xml"
         for rules in (BACKUP_RULES, BACKUP_RULES_LEGACY):
             generated = resource_directory / rules.name

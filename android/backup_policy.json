@@ -3,5 +3,8 @@
     "allowBackup": "false",
     "fullBackupContent": "@xml/backup_rules_legacy",
     "dataExtractionRules": "@xml/backup_rules"
-  }
+  },
+  "uses_permissions": [
+    "android.permission.INTERNET"
+  ]
 }

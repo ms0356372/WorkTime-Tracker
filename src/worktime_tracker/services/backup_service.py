@@ -22,13 +22,16 @@ from worktime_tracker.models import (
 from worktime_tracker.services.balance_service import LeaveBalanceService
 
 BACKUP_FORMAT_NAME = "WorkTimeTrackerBackup"
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
+SUPPORTED_BACKUP_FORMATS = {1, 2}
 SOURCE_TABLES = (
     "work_records",
     "settings",
     "leave_cycles",
     "monthly_settlements",
     "app_metadata",
+    "calendar_overrides",
+    "official_holidays",
 )
 TABLE_COLUMNS = {
     "work_records": {
@@ -48,6 +51,8 @@ TABLE_COLUMNS = {
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
+    "calendar_overrides": {"id", "work_date", "day_type", "note", "created_at", "updated_at"},
+    "official_holidays": {"holiday_date", "name", "year", "source", "synced_at"},
 }
 REQUIRED_COLUMNS = {
     "work_records": {"id", "work_date", "clock_in", "clock_out"},
@@ -55,6 +60,8 @@ REQUIRED_COLUMNS = {
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
+    "calendar_overrides": {"id", "work_date", "day_type"},
+    "official_holidays": {"holiday_date", "name", "year", "source", "synced_at"},
 }
 LEDGER_COLUMNS = {
     "id",
@@ -144,7 +151,7 @@ def inspect_backup(path):
         raise BackupValidationError("備份包含無效的 UTF-8 JSON。") from exc
     if manifest.get("format_name") != BACKUP_FORMAT_NAME:
         raise BackupValidationError("不是工時管家備份檔。")
-    if manifest.get("backup_format_version") != BACKUP_FORMAT_VERSION:
+    if manifest.get("backup_format_version") not in SUPPORTED_BACKUP_FORMATS:
         raise BackupValidationError("不支援的備份格式版本。")
     if hashlib.sha256(data_bytes).hexdigest() != manifest.get("data_sha256"):
         raise BackupValidationError("備份資料 checksum 驗證失敗。")
@@ -158,7 +165,10 @@ def inspect_backup(path):
         raise BackupValidationError("備份缺少必要資料欄位。")
     if manifest.get("record_count") != len(tables["work_records"]):
         raise BackupValidationError("備份紀錄數量與 manifest 不一致。")
+    backup_version = manifest["backup_format_version"]
     for table, allowed in TABLE_COLUMNS.items():
+        if backup_version == 1 and table in {"calendar_overrides", "official_holidays"}:
+            continue
         rows = tables.get(table, [])
         if not isinstance(rows, list) or any(
             not isinstance(row, dict)
@@ -251,12 +261,6 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
     priority = DeductionPriority(
         settings.get("leave_deduction_priority", DeductionPriority.COMP_TIME_FIRST)
     )
-    rebuilt = LeaveBalanceService().recalculate_balances(
-        records,
-        annual_opening=int(settings.get("annual_leave_total_minutes", "0") or 0),
-        priority=priority,
-        manual_transactions=manual,
-    )
     with db.transaction() as con:
         con.execute("DELETE FROM balance_ledger")
         for table in reversed(SOURCE_TABLES):
@@ -265,11 +269,35 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
             fault_injector()
         for table in SOURCE_TABLES:
             _insert_rows(con, table, tables.get(table, []))
+        if "work_tracking_start_date" not in settings:
+            restored_today = date.today().isoformat()
+            con.execute(
+                "INSERT INTO settings(key,value) VALUES('work_tracking_start_date',?)",
+                (restored_today,),
+            )
+            settings["work_tracking_start_date"] = restored_today
         # Manual source events retain IDs so reversal relationships remain valid.
         _insert_rows(con, "balance_ledger", data["manual_ledger_events"])
-        from worktime_tracker.database.repositories import LedgerRepository
+        from worktime_tracker.database.repositories import (
+            CalendarOverrideRepository,
+            LedgerRepository,
+            OfficialHolidayRepository,
+            SettingsRepository,
+        )
+        from worktime_tracker.services.work_calendar_service import WorkCalendarService
 
         ledger_repository = LedgerRepository(db)
+        calendar = WorkCalendarService(
+            CalendarOverrideRepository(db), OfficialHolidayRepository(db), SettingsRepository(db)
+        )
+        rebuilt = LeaveBalanceService().recalculate_balances(
+            records,
+            annual_opening=int(settings.get("annual_leave_total_minutes", "0") or 0),
+            priority=priority,
+            manual_transactions=manual,
+            calendar=calendar,
+            tracking_start_date=date.fromisoformat(settings["work_tracking_start_date"]),
+        )
         for entry in rebuilt:
             if entry.ledger_origin == LedgerOrigin.MANUAL:
                 con.execute(

@@ -20,11 +20,13 @@ class DashboardView:
         ledger_repository,
         settings_repository=None,
         export_directory=None,
+        calendar=None,
     ):
         self.repository = repository
         self.ledger = ledger_repository
         self.settings = settings_repository
         self.export_directory = Path(export_directory) if export_directory else None
+        self.calendar = calendar
 
     def build(self):
         self.labels = {
@@ -92,6 +94,9 @@ class DashboardView:
                 scope,
                 start,
                 end,
+                self.calendar,
+                self.settings.tracking_start_date(today) if self.calendar else None,
+                today,
             )
             saved = await file_service_for(toga.App.app).save_bytes(
                 temporary.read_bytes(), filename, XLSX_MIME

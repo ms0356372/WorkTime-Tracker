@@ -1,7 +1,7 @@
 """Human-readable XLSX reports built from the application's canonical services."""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from worktime_tracker.models import LedgerOrigin, TransactionType
@@ -41,6 +41,9 @@ def export_xlsx(
     scope="all",
     start_date=None,
     end_date=None,
+    calendar=None,
+    tracking_start_date=None,
+    today=None,
 ):
     """Write a four-sheet XLSX report; this file is never accepted for restore."""
     try:
@@ -49,7 +52,7 @@ def export_xlsx(
         from worktime_tracker.utils import minimal_xlsxwriter as xlsxwriter
 
     selected = _selected(records, scope, start_date, end_date)
-    if not selected:
+    if not selected and not (calendar and tracking_start_date):
         raise ValueError("所選期間沒有可匯出的工時紀錄。")
 
     workbook = xlsxwriter.Workbook(str(Path(path)))
@@ -67,28 +70,55 @@ def export_xlsx(
         "每日紀錄",
         [
             "日期",
+            "日期類型",
+            "狀態",
             "上班時間",
             "下班時間",
             "午休扣除",
             "實際工時",
+            "標準工時",
             "超時",
             "不足",
             "備註",
         ],
     )
-    for row, record in enumerate(selected, 1):
+    report_rows = [(record.work_date, record) for record in selected]
+    if calendar and tracking_start_date:
+        report_end = min(
+            end_date or (today or date.today()),
+            (today or date.today()) - timedelta(days=1),
+        )
+        report_start = max(start_date or tracking_start_date, tracking_start_date)
+        report_rows.extend(
+            (day, None)
+            for day in calendar.get_missing_workdays(report_start, report_end, selected)
+        )
+    report_rows.sort(key=lambda item: item[0])
+    for row, (work_date, record) in enumerate(report_rows, 1):
+        if record is None:
+            standard = calendar.standard_minutes_for(work_date)
+            daily.write_row(row, 0, [
+                work_date.strftime("%Y/%m/%d"), calendar.day_type(work_date), "無紀錄",
+                "", "", format_minutes(0), format_minutes(0), format_minutes(standard),
+                format_minutes(0), format_minutes(standard), "",
+            ])
+            continue
         actual = calculate_work_minutes(record)
         raw = calculate_work_minutes(replace(record, deduct_break=False))
-        difference = actual - record.standard_minutes
+        standard = calendar.standard_minutes_for(record.work_date) if calendar else record.standard_minutes
+        difference = actual - standard
         daily.write_row(
             row,
             0,
             [
                 record.work_date.strftime("%Y/%m/%d"),
+                calendar.day_type(record.work_date) if calendar else str(record.workday_type),
+                "已登錄",
                 record.clock_in,
                 record.clock_out,
                 format_minutes(raw - actual),
                 format_minutes(actual),
+                format_minutes(standard),
                 format_minutes(max(difference, 0)),
                 format_minutes(max(-difference, 0)),
                 record.note,
@@ -100,7 +130,7 @@ def export_xlsx(
         (ledger[-1].comp_balance, ledger[-1].annual_balance) if ledger else (0, 0)
     )
     if scope == "leave_year":
-        result = summarize(selected)
+        result = summarize(selected, calendar, start_date, end_date, today)
         rows = [
             [
                 "年度期間",

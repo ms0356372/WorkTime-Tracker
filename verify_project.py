@@ -96,7 +96,8 @@ def database_check() -> None:
     from worktime_tracker.database import Database
 
     db = Database(":memory:")
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
+
 
 
 def excel_check() -> None:
@@ -176,6 +177,7 @@ def build_configuration_check() -> None:
         "fullBackupContent": "@xml/backup_rules_legacy",
         "dataExtractionRules": "@xml/backup_rules",
     }
+    assert policy.get("uses_permissions") == ["android.permission.INTERNET"]
     for rules in ("android/backup_rules.xml", "android/backup_rules_legacy.xml"):
         root = ET.parse(ROOT / rules).getroot()
         assert root.findall(".//exclude")

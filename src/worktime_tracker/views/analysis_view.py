@@ -13,9 +13,11 @@ from worktime_tracker.utils.months import next_month, previous_month
 
 
 class AnalysisView:
-    def __init__(self, records, ledger):
+    def __init__(self, records, ledger, calendar=None, settings=None):
         self.records = records
         self.ledger = ledger
+        self.calendar = calendar
+        self.settings = settings
         today = date.today()
         self.selected_year = today.year
         self.selected_month = today.month
@@ -55,8 +57,16 @@ class AnalysisView:
         if not hasattr(self, "summary"):
             return
         rows = self.records.all()
-        month = calculate_month_summary(rows, self.selected_year, self.selected_month)
+        tracking_start = (
+            self.settings.tracking_start_date()
+            if self.calendar and self.settings
+            else None
+        )
+        month = calculate_month_summary(
+            rows, self.selected_year, self.selected_month, self.calendar,
+            tracking_start_date=tracking_start,
+        )
         year = calculate_year_summary(rows, self.selected_year)
         comp, annual = self.ledger.current_balances()
         self.heading.text = f"{self.selected_year} 年 {self.selected_month} 月"
-        self.summary.text = f"【{self.selected_year} 年 {self.selected_month} 月】\n總工時\n{format_minutes(month.work_minutes)}\n\n出勤天數\n{month.workdays} 天\n\n平均每日工時\n{format_minutes(month.average_minutes)}\n\n超時\n{format_minutes(month.overtime_minutes)}\n\n不足\n{format_minutes(month.shortfall_minutes)}\n\n【{self.selected_year} 年度】\n年度總工時\n{format_minutes(year.work_minutes)}\n\n年度出勤天數\n{year.workdays} 天\n\n【假別】\n補休餘額\n{format_minutes(comp)}\n\n特休餘額\n{format_minutes(annual)}"
+        self.summary.text = f"【{self.selected_year} 年 {self.selected_month} 月】\n總工時\n{format_minutes(month.work_minutes)}\n\n出勤天數\n{month.workdays} 天\n\n平均每日工時\n{format_minutes(month.average_minutes)}\n\n超時\n{format_minutes(month.overtime_minutes)}\n\n不足\n{format_minutes(month.shortfall_minutes)}\n\n假日工作\n{format_minutes(month.holiday_work_minutes)}\n\n【{self.selected_year} 年度】\n年度總工時\n{format_minutes(year.work_minutes)}\n\n年度出勤天數\n{year.workdays} 天\n\n【假別】\n補休餘額\n{format_minutes(comp)}\n\n特休餘額\n{format_minutes(annual)}"

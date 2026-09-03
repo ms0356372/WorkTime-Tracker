@@ -82,7 +82,8 @@ class MonthlyRecordsView:
             toga.ConfirmDialog(
                 "確認刪除紀錄",
                 f"確定要刪除 {record.work_date.isoformat()} 的工時紀錄嗎？\n\n"
-                "此操作會重新計算補休與特休餘額。",
+                "此操作會重新計算補休與特休餘額。\n"
+                "若此日期為已過的正常上班日，刪除後將視為當日未登錄工時。",
             )
         )
         if not confirmed:
