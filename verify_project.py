@@ -105,9 +105,7 @@ def excel_check() -> None:
 
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "verify.xlsx"
-        export_xlsx(
-            output, [WorkRecord(date(2026, 1, 1), "09:00", "18:00")], [], {}, 2026
-        )
+        export_xlsx(output, [WorkRecord(date(2026, 1, 1), "09:00", "18:00")], [], {})
         assert output.read_bytes()[:2] == b"PK"
 
 

@@ -2,13 +2,14 @@
 
 from datetime import date
 from pathlib import Path
+import traceback
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
 from worktime_tracker.services.analytics_service import calculate_month_summary
 from worktime_tracker.services.worktime_calculator import calculate_work_minutes
 from worktime_tracker.services.excel_export_service import export_filename, export_xlsx
-from worktime_tracker.utils.file_dialogs import save_with_system_picker
+from worktime_tracker.services.android_file_service import XLSX_MIME, file_service_for
 from worktime_tracker.utils.formatting import format_minutes
 
 
@@ -30,21 +31,14 @@ class DashboardView:
             name: toga.Label("", style=Pack(margin_bottom=14))
             for name in ("today", "month", "comp", "annual")
         }
-        today = date.today()
         self.export_scope = toga.Selection(
-            items=["本月", "指定月份", "本年度", "全部紀錄"], value="本月"
+            items=["全部紀錄", "今年度"], value="全部紀錄"
         )
-        self.export_year = toga.NumberInput(min=1, step=1, value=today.year)
-        self.export_month = toga.NumberInput(min=1, max=12, step=1, value=today.month)
         content = toga.Box(
             children=list(self.labels.values())
             + [
                 toga.Label("匯出範圍"),
                 self.export_scope,
-                toga.Label("年份"),
-                self.export_year,
-                toga.Label("月份（指定月份時使用）"),
-                self.export_month,
                 toga.Button("匯出 Excel", on_press=self.export_excel),
             ],
             style=Pack(direction=COLUMN, margin=16, gap=8),
@@ -67,46 +61,47 @@ class DashboardView:
         self.labels["annual"].text = f"剩餘特休\n{format_minutes(annual)}"
 
     async def export_excel(self, widget):
-        labels = {
-            "本月": "month",
-            "指定月份": "month",
-            "本年度": "year",
-            "全部紀錄": "all",
-        }
-        scope = labels[self.export_scope.value]
         today = date.today()
-        year = (
-            today.year
-            if self.export_scope.value == "本月"
-            else int(self.export_year.value)
-        )
-        month = (
-            today.month
-            if self.export_scope.value == "本月"
-            else int(self.export_month.value)
-        )
         output_dir = self.export_directory or Path(toga.App.app.paths.data) / "exports"
         output_dir.mkdir(parents=True, exist_ok=True)
-        filename = export_filename(scope, year, month, today)
-        temporary = output_dir / filename
         try:
+            scope = "all"
+            start = end = None
+            if self.export_scope.value == "今年度":
+                configured = self.settings.get("annual_leave_settlement_date")
+                if not configured:
+                    raise ValueError(
+                        "請先至設定頁設定特休結算日，才能使用『今年度』匯出。"
+                    )
+                settlement = date.fromisoformat(configured)
+                from worktime_tracker.utils.leave_year import (
+                    get_current_leave_year_range,
+                )
+
+                start, end = get_current_leave_year_range(
+                    today, settlement.month, settlement.day
+                )
+                scope = "leave_year"
+            filename = export_filename(scope, today, start, end)
+            temporary = output_dir / filename
             export_xlsx(
                 temporary,
                 self.repository.all(),
                 self.ledger.all(),
                 self.settings,
-                year,
-                month,
                 scope,
+                start,
+                end,
             )
-            saved = await save_with_system_picker(
-                toga.App.app.main_window, temporary, filename, ["xlsx"]
+            saved = await file_service_for(toga.App.app).save_bytes(
+                temporary.read_bytes(), filename, XLSX_MIME
             )
-            if saved is not None:
+            if saved:
                 await toga.App.app.main_window.dialog(
                     toga.InfoDialog("Excel 匯出完成", f"檔案：{filename}")
                 )
         except Exception as exc:
+            traceback.print_exc()
             await toga.App.app.main_window.dialog(
-                toga.ErrorDialog("無法匯出 Excel", str(exc))
+                toga.ErrorDialog("Excel 匯出失敗", str(exc))
             )

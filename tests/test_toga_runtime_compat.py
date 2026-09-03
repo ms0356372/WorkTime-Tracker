@@ -69,8 +69,6 @@ def install_fake_toga(monkeypatch):
         "ConfirmDialog",
         "InfoDialog",
         "ErrorDialog",
-        "SaveFileDialog",
-        "OpenFileDialog",
     ):
         setattr(toga, name, type(name, (Widget,), {}))
     toga.Box = Box
@@ -168,6 +166,15 @@ def test_all_v020_views_build_and_refresh_without_unsupported_sources(monkeypatc
     for view in views:
         assert view.build() is not None
         view.refresh()
+
+
+def test_dashboard_excel_ranges_are_only_all_and_current_leave_year(monkeypatch):
+    install_fake_toga(monkeypatch)
+    view = load_view("worktime_tracker.views.dashboard_view").DashboardView(
+        RecordRepository(), LedgerRepository(), SettingsRepository()
+    )
+    view.build()
+    assert list(view.export_scope.items) == ["全部紀錄", "今年度"]
 
 
 def test_repository_has_no_list_source_extend_calls():

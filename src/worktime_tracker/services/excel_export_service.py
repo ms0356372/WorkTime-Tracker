@@ -7,17 +7,15 @@ from pathlib import Path
 from worktime_tracker.models import LedgerOrigin, TransactionType
 from worktime_tracker.services.analytics_service import (
     calculate_month_summary,
-    calculate_year_summary,
+    summarize,
 )
 from worktime_tracker.services.worktime_calculator import calculate_work_minutes
 from worktime_tracker.utils.formatting import format_minutes
 
 
-def export_filename(scope: str, year: int, month: int | None = None, today=None):
-    if scope == "month":
-        return f"工時管家_{year}-{month:02d}.xlsx"
-    if scope == "year":
-        return f"工時管家_{year}年度.xlsx"
+def export_filename(scope: str, today=None, start_date=None, end_date=None):
+    if scope == "leave_year":
+        return f"工時管家_年度_{start_date:%Y%m%d}-{end_date:%Y%m%d}.xlsx"
     return f"工時管家_全部紀錄_{(today or date.today()):%Y%m%d}.xlsx"
 
 
@@ -27,28 +25,30 @@ def _setting(settings, key, default=""):
     return default
 
 
-def _selected(records, scope, year, month):
+def _selected(records, scope, start_date, end_date):
     if scope == "all":
         return list(records)
-    if scope == "month":
-        return [
-            r
-            for r in records
-            if r.work_date.year == year and r.work_date.month == month
-        ]
-    return [r for r in records if r.work_date.year == year]
+    if scope != "leave_year" or start_date is None or end_date is None:
+        raise ValueError("settlement date required")
+    return [r for r in records if start_date <= r.work_date <= end_date]
 
 
-def export_xlsx(path, records, ledger, settings, year=None, month=None, scope=None):
+def export_xlsx(
+    path,
+    records,
+    ledger,
+    settings,
+    scope="all",
+    start_date=None,
+    end_date=None,
+):
     """Write a four-sheet XLSX report; this file is never accepted for restore."""
     try:
         import xlsxwriter
     except ModuleNotFoundError:
         from worktime_tracker.utils import minimal_xlsxwriter as xlsxwriter
 
-    year = year or date.today().year
-    scope = scope or ("month" if month is not None else "year")
-    selected = _selected(records, scope, year, month)
+    selected = _selected(records, scope, start_date, end_date)
     if not selected:
         raise ValueError("所選期間沒有可匯出的工時紀錄。")
 
@@ -99,10 +99,16 @@ def export_xlsx(path, records, ledger, settings, year=None, month=None, scope=No
     comp, annual = (
         (ledger[-1].comp_balance, ledger[-1].annual_balance) if ledger else (0, 0)
     )
-    if scope == "month":
-        result = calculate_month_summary(records, year, month)
+    if scope == "leave_year":
+        result = summarize(selected)
         rows = [
-            ["統計期間", f"{year} 年 {month} 月", "", "", ""],
+            [
+                "年度期間",
+                f"{start_date:%Y/%m/%d} ～ {end_date:%Y/%m/%d}",
+                "",
+                "",
+                "",
+            ],
             [
                 "總工時",
                 format_minutes(result.work_minutes),
@@ -112,29 +118,21 @@ def export_xlsx(path, records, ledger, settings, year=None, month=None, scope=No
             ],
             ["平均每日工時", format_minutes(result.average_minutes), "", "", ""],
         ]
-    elif scope == "year":
-        rows = []
-        for selected_month in range(1, 13):
-            result = calculate_month_summary(records, year, selected_month)
+        year, month = start_date.year, start_date.month
+        for _ in range(12):
+            monthly = calculate_month_summary(selected, year, month)
             rows.append(
                 [
-                    f"{selected_month} 月",
-                    format_minutes(result.work_minutes),
-                    result.workdays,
-                    format_minutes(result.overtime_minutes),
-                    format_minutes(result.shortfall_minutes),
+                    f"{year}/{month:02d}",
+                    format_minutes(monthly.work_minutes),
+                    monthly.workdays,
+                    format_minutes(monthly.overtime_minutes),
+                    format_minutes(monthly.shortfall_minutes),
                 ]
             )
-        annual_result = calculate_year_summary(records, year)
-        rows.append(
-            [
-                "年度總計",
-                format_minutes(annual_result.work_minutes),
-                annual_result.workdays,
-                format_minutes(annual_result.overtime_minutes),
-                format_minutes(annual_result.shortfall_minutes),
-            ]
-        )
+            month += 1
+            if month == 13:
+                year, month = year + 1, 1
     else:
         total = sum(calculate_work_minutes(record) for record in selected)
         rows = [["全部紀錄", format_minutes(total), len(selected), "", ""]]

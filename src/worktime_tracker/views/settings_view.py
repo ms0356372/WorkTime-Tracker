@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from pathlib import Path
+import traceback
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
@@ -15,11 +16,9 @@ from worktime_tracker.services.backup_service import (
     inspect_backup,
     restore_backup,
 )
-from worktime_tracker.utils.file_dialogs import (
-    open_with_system_picker,
-    save_with_system_picker,
-)
+from worktime_tracker.services.android_file_service import BACKUP_MIME, file_service_for
 from worktime_tracker.utils.formatting import format_minutes
+from worktime_tracker.utils.leave_year import get_current_leave_year_range
 
 
 class SettingsView:
@@ -54,6 +53,7 @@ class SettingsView:
         )
         self.annual_hours = toga.NumberInput(min=0, step=1, value=total // 60)
         self.settlement = toga.DateInput(value=date.fromisoformat(settlement))
+        self.leave_year_summary = toga.Label("")
         self.annual_summary = toga.Label("")
         lunch_start, lunch_end = self.settings.lunch_break()
         self.lunch_start = toga.TimeInput(
@@ -79,6 +79,9 @@ class SettingsView:
             self.annual_hours,
             toga.Label("特休結算日"),
             self.settlement,
+            toga.Label("年度計算期間為：特休結算日隔天至下一年度結算日當天。"),
+            toga.Label("若結算日為 6/30，則 2026/7/1～2027/6/30 為同一年度。"),
+            self.leave_year_summary,
             toga.Button("儲存年度特休設定", on_press=self.save_annual_leave),
             self.annual_summary,
             self.balances,
@@ -212,6 +215,18 @@ class SettingsView:
         )
         self.annual_summary.text = f"年度特休：{format_minutes(total)}\n已使用：{format_minutes(used)}\n剩餘：{format_minutes(annual)}"
         self.history.items = self._history_items()
+        configured = self.settings.get("annual_leave_settlement_date")
+        if configured:
+            settlement = date.fromisoformat(configured)
+            self.settlement.value = settlement
+            start, end = get_current_leave_year_range(
+                date.today(), settlement.month, settlement.day
+            )
+            self.leave_year_summary.text = (
+                f"目前年度：{start:%Y/%m/%d} ～ {end:%Y/%m/%d}"
+            )
+        else:
+            self.leave_year_summary.text = "目前年度：尚未設定特休結算日"
 
     def _notify(self):
         if self.on_change:
@@ -256,25 +271,26 @@ class SettingsView:
             temporary = create_backup(
                 self.records.db, self._backup_directory() / filename
             )
-            saved = await save_with_system_picker(
-                self.app.main_window, temporary, filename, ["worktimebackup"]
+            saved = await file_service_for(self.app).save_bytes(
+                temporary.read_bytes(), filename, BACKUP_MIME
             )
-            if saved is not None:
+            if saved:
                 await self.app.main_window.dialog(
                     toga.InfoDialog("完整備份完成", f"檔案：{filename}")
                 )
         except Exception as exc:
+            traceback.print_exc()
             await self.app.main_window.dialog(
                 toga.ErrorDialog("無法建立完整備份", str(exc))
             )
 
     async def restore_full_backup(self, widget):
         try:
-            selected = await open_with_system_picker(
-                self.app.main_window, self._backup_directory(), ["worktimebackup"]
-            )
-            if selected is None:
+            payload = await file_service_for(self.app).open_bytes(BACKUP_MIME)
+            if payload is None:
                 return
+            selected = self._backup_directory() / "selected.worktimebackup"
+            selected.write_bytes(payload)
             manifest, _ = inspect_backup(selected)
             information = (
                 f"備份日期：{manifest['created_at']}\nAPP 版本：{manifest['app_version']}\n"
@@ -300,6 +316,7 @@ class SettingsView:
                 )
             )
         except Exception as exc:
+            traceback.print_exc()
             await self.app.main_window.dialog(
                 toga.ErrorDialog("無法還原備份", str(exc))
             )

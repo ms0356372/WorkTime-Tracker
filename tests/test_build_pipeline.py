@@ -21,6 +21,19 @@ def test_batch_sources_are_ascii_crlf_and_clean():
     assert files and all(not validate_batch_file(path) for path in files)
 
 
+def test_android_batch_only_builds_and_never_operates_on_phone_data():
+    root = Path(__file__).parents[1]
+    wrappers = "\n".join(
+        path.read_text(encoding="ascii")
+        for path in (root / "build_android.bat", root / "scripts/build_android.bat")
+    )
+    assert "verify_project.py" in wrappers
+    assert "--debug" in wrappers
+    assert "adb " not in wrappers.lower()
+    assert "clean install" not in wrappers.lower()
+    assert "build + install" not in wrappers.lower()
+
+
 def test_batch_source_discovery_ignores_virtual_environments(tmp_path, monkeypatch):
     from scripts import check_batch_files
 
@@ -104,9 +117,9 @@ def test_gradle_fallback_checks_java_before_running(monkeypatch):
 
 def test_debug_build_artifact_naming():
     module = load_build_mobile()
-    assert module.artifact_name("debug") == "工時管家-0.7.0-debug.apk"
-    assert module.artifact_name("release") == "工時管家-0.7.0-release-unsigned.apk"
-    assert module.artifact_name("release", signed=True) == "工時管家-0.7.0-release.apk"
+    assert module.artifact_name("debug") == "工時管家-0.7.1-debug.apk"
+    assert module.artifact_name("release") == "工時管家-0.7.1-release-unsigned.apk"
+    assert module.artifact_name("release", signed=True) == "工時管家-0.7.1-release.apk"
 
 
 def test_option_container_material_dependency_is_persistent():
@@ -179,30 +192,6 @@ def test_android_backup_policy_is_persistent_and_applied_after_update(
     ).read_bytes() == module.BACKUP_RULES_LEGACY.read_bytes()
     policy = json.loads(module.BACKUP_POLICY.read_text(encoding="utf-8"))
     assert policy["application_attributes"]["allowBackup"] == "false"
-
-
-def test_clean_install_clears_only_the_app_then_reinstalls(tmp_path, monkeypatch):
-    module = load_build_mobile()
-    apk = tmp_path / "app-debug.apk"
-    apk.write_bytes(b"apk")
-    monkeypatch.setattr(module.shutil, "which", lambda name: "adb")
-
-    class Result:
-        stdout = "List of devices attached\nserial\tdevice\n"
-
-    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: Result())
-    commands = []
-    monkeypatch.setattr(
-        module,
-        "run_command",
-        lambda args, **kwargs: commands.append((args, kwargs)) or 0,
-    )
-    module.clean_install_debug_apk(apk)
-    assert commands[0] == (
-        ["adb", "shell", "pm", "clear", "tw.app.worktime.worktime_tracker"],
-        {"check": False},
-    )
-    assert commands[1][0] == ["adb", "install", "-r", str(apk)]
 
 
 def test_unsigned_release_is_not_installable(tmp_path, monkeypatch):

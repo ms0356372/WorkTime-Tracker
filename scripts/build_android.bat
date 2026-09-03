@@ -11,7 +11,7 @@ echo Project root: %CD%
 echo This window will pause after success or failure.
 echo.
 
-echo [1/6] Checking Python...
+echo [1/7] Checking Python...
 where python >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python was not found in PATH.
@@ -22,7 +22,7 @@ python --version
 if errorlevel 1 goto :error
 
 echo.
-echo [2/6] Preparing virtual environment...
+echo [2/7] Preparing virtual environment...
 if not exist ".venv\Scripts\python.exe" (
     python -m venv .venv
     if errorlevel 1 goto :error
@@ -32,7 +32,7 @@ set "PYTHON=%CD%\.venv\Scripts\python.exe"
 if errorlevel 1 goto :error
 
 echo.
-echo [3/6] Installing dependencies...
+echo [3/7] Installing dependencies...
 "%PYTHON%" -m pip install --upgrade pip setuptools wheel
 if errorlevel 1 goto :error
 "%PYTHON%" -m pip install --upgrade "briefcase>=0.3.20,<0.4"
@@ -41,12 +41,17 @@ if errorlevel 1 goto :error
 if errorlevel 1 goto :error
 
 echo.
-echo [4/6] Running tests...
+echo [4/7] Running tests...
 "%PYTHON%" -m pytest -v
 if errorlevel 1 goto :error
 
 echo.
-echo [5/6] Starting Android build...
+echo [5/7] Running project verification...
+"%PYTHON%" verify_project.py
+if errorlevel 1 goto :error
+
+echo.
+echo [6/7] Starting Android build...
 set "PYTHONUNBUFFERED=1"
 "%PYTHON%" -u build_mobile.py android %*
 set "RESULT=%ERRORLEVEL%"
@@ -58,7 +63,7 @@ if not "%RESULT%"=="0" (
 )
 
 echo.
-echo [6/6] Build finished successfully.
+echo [7/7] Build finished successfully.
 echo APK output: release\android
 echo Build report: release\build_report.txt
 echo Build log: release\build_android.log

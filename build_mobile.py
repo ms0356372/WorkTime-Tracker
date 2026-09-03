@@ -31,7 +31,6 @@ SIGNING_ENV_VARS = (
     "ANDROID_KEY_PASSWORD",
 )
 MATERIAL_DEPENDENCY = "com.google.android.material:material:1.12.0"
-ANDROID_APP_ID = "tw.app.worktime.worktime_tracker"
 ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
 BACKUP_POLICY = ROOT / "android" / "backup_policy.json"
 BACKUP_RULES = ROOT / "android" / "backup_rules.xml"
@@ -499,57 +498,6 @@ def sign_release_apk(unsigned_apk: Path) -> Path:
     return signed_apk
 
 
-def install_debug_apk(apk: Path) -> None:
-    adb = shutil.which("adb")
-    if not adb:
-        print("ADB not available. APK is ready for manual installation.")
-        return
-    result = subprocess.run(
-        [adb, "devices"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    devices = [
-        line.split()[0]
-        for line in result.stdout.splitlines()[1:]
-        if line.strip().endswith("\tdevice")
-    ]
-    if not devices:
-        print("No Android device connected.")
-        print("APK is ready for manual installation.")
-        return
-    run_command([adb, "install", "-r", str(apk)])
-
-
-def clean_install_debug_apk(apk: Path) -> None:
-    """Clear installed app data before reinstalling; no device is not a build error."""
-    adb = shutil.which("adb")
-    if not adb:
-        print("ADB not available. APK is ready for manual installation.")
-        return
-    result = subprocess.run(
-        [adb, "devices"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    devices = [
-        line.split()[0]
-        for line in result.stdout.splitlines()[1:]
-        if line.strip().endswith("\tdevice")
-    ]
-    if not devices:
-        print("No Android device connected.")
-        print("APK is ready for manual installation.")
-        return
-    print("CLEAN INSTALL: deleting all existing WorkTime Tracker app data.", flush=True)
-    run_command([adb, "shell", "pm", "clear", ANDROID_APP_ID], check=False)
-    run_command([adb, "install", "-r", str(apk)])
-
-
 def print_debug_ready(apk: Path, size: int) -> None:
     print("=" * 40)
     print("ANDROID DEBUG APK READY")
@@ -564,9 +512,7 @@ def print_debug_ready(apk: Path, size: int) -> None:
 def build_android(
     clean: bool,
     mode: str = "debug",
-    install: bool = False,
     require_release_signing: bool = False,
-    clean_install: bool = False,
 ) -> int:
     state: dict[str, str] = {"final": "FAIL"}
     try:
@@ -684,10 +630,6 @@ def build_android(
         write_report(state)
         if mode == "debug":
             print_debug_ready(apk, size)
-            if clean_install:
-                clean_install_debug_apk(apk)
-            elif install:
-                install_debug_apk(apk)
         return 0
     except Exception as exc:
         state["error"] = str(exc)
@@ -748,16 +690,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.set_defaults(mode="debug")
     parser.add_argument(
-        "--install",
-        action="store_true",
-        help="Install the signed debug APK with adb when a device is connected",
-    )
-    parser.add_argument(
-        "--clean-install",
-        action="store_true",
-        help="Clear all installed app data, then install the signed debug APK",
-    )
-    parser.add_argument(
         "--require-release-signing", action="store_true", help=argparse.SUPPRESS
     )
     return parser.parse_args()
@@ -772,29 +704,13 @@ def main() -> int:
     if args.action == "clean":
         clean_android()
         return 0
-    if (args.install or args.clean_install) and (
-        args.action != "android" or args.mode != "debug"
-    ):
-        parser_error = "--install/--clean-install are only valid with 'android --debug'"
-        print(parser_error, file=sys.stderr)
-        return 2
     if args.action == "android":
-        return build_android(
-            args.clean,
-            args.mode,
-            args.install,
-            args.require_release_signing,
-            args.clean_install,
-        )
+        return build_android(args.clean, args.mode, args.require_release_signing)
     if args.action == "ios":
         return build_ios()
     if args.action == "all":
         android_result = build_android(
-            args.clean,
-            args.mode,
-            args.install,
-            args.require_release_signing,
-            args.clean_install,
+            args.clean, args.mode, args.require_release_signing
         )
         return android_result or build_ios()
     return 2
