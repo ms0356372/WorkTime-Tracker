@@ -105,7 +105,7 @@ def test_v020_metadata_and_android_regressions():
     assert (
         config["project"]["version"]
         == config["tool"]["briefcase"]["version"]
-        == "0.6.0"
+        == "0.7.0"
     )
     assert (
         "com.google.android.material:material:1.12.0"

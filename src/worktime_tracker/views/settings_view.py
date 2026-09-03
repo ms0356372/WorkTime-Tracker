@@ -1,6 +1,7 @@
 """Responsive settings, annual leave, and conversion controls."""
 
 from datetime import date, datetime
+from pathlib import Path
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
@@ -8,6 +9,16 @@ from worktime_tracker.models import DeductionPriority, LeaveType
 from worktime_tracker.services.leave_conversion_service import LeaveConversionService
 from worktime_tracker.services.record_service import WorkRecordService
 from worktime_tracker.services.worktime_calculator import validate_lunch_break
+from worktime_tracker.services.backup_service import (
+    backup_filename,
+    create_backup,
+    inspect_backup,
+    restore_backup,
+)
+from worktime_tracker.utils.file_dialogs import (
+    open_with_system_picker,
+    save_with_system_picker,
+)
 from worktime_tracker.utils.formatting import format_minutes
 
 
@@ -18,12 +29,14 @@ class SettingsView:
         ledger_repository,
         records_repository=None,
         on_change=None,
+        data_directory=None,
     ):
         self.settings = settings_repository
         self.ledger = ledger_repository
         self.records = records_repository
         self.on_change = on_change
         self.conversions = LeaveConversionService()
+        self.data_directory = Path(data_directory) if data_directory else None
 
     def build(self):
         self.app = toga.App.app
@@ -91,6 +104,9 @@ class SettingsView:
             toga.Label("轉換紀錄"),
             self.history,
             toga.Button("撤銷選取的轉換", on_press=self.reverse_selected),
+            toga.Label("資料管理"),
+            toga.Button("完整備份", on_press=self.create_full_backup),
+            toga.Button("還原備份", on_press=self.restore_full_backup),
         ]
         content = toga.Box(
             children=children, style=Pack(direction=COLUMN, margin=16, gap=8)
@@ -227,3 +243,63 @@ class SettingsView:
             )
         except Exception as exc:
             await self.app.main_window.dialog(toga.ErrorDialog("無法撤銷", str(exc)))
+
+    def _backup_directory(self):
+        path = self.data_directory or Path(self.app.paths.data)
+        path = path / "backups"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    async def create_full_backup(self, widget):
+        try:
+            filename = backup_filename()
+            temporary = create_backup(
+                self.records.db, self._backup_directory() / filename
+            )
+            saved = await save_with_system_picker(
+                self.app.main_window, temporary, filename, ["worktimebackup"]
+            )
+            if saved is not None:
+                await self.app.main_window.dialog(
+                    toga.InfoDialog("完整備份完成", f"檔案：{filename}")
+                )
+        except Exception as exc:
+            await self.app.main_window.dialog(
+                toga.ErrorDialog("無法建立完整備份", str(exc))
+            )
+
+    async def restore_full_backup(self, widget):
+        try:
+            selected = await open_with_system_picker(
+                self.app.main_window, self._backup_directory(), ["worktimebackup"]
+            )
+            if selected is None:
+                return
+            manifest, _ = inspect_backup(selected)
+            information = (
+                f"備份日期：{manifest['created_at']}\nAPP 版本：{manifest['app_version']}\n"
+                f"工時紀錄：{manifest['record_count']} 筆\n備份格式：v{manifest['backup_format_version']}"
+            )
+            if not await self.app.main_window.dialog(
+                toga.ConfirmDialog("備份資訊", information)
+            ):
+                return
+            warning = "還原備份將取代目前手機中的工時資料與設定。\n目前資料會先自動建立安全備份。\n\n是否繼續？"
+            if not await self.app.main_window.dialog(
+                toga.ConfirmDialog("確認還原備份", warning)
+            ):
+                return
+            result = restore_backup(self.records.db, selected, self._backup_directory())
+            self.refresh()
+            self._notify()
+            comp, annual = self.ledger.current_balances()
+            await self.app.main_window.dialog(
+                toga.InfoDialog(
+                    "資料還原完成",
+                    f"工時紀錄：{result['record_count']} 筆\n補休：{format_minutes(comp)}\n特休：{format_minutes(annual)}",
+                )
+            )
+        except Exception as exc:
+            await self.app.main_window.dialog(
+                toga.ErrorDialog("無法還原備份", str(exc))
+            )

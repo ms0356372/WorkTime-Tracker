@@ -28,7 +28,12 @@ class WorkTimeApp(toga.App):
         self.repository = WorkRecordRepository(self.db)
         self.settings_repository = SettingsRepository(self.db)
         self.ledger_repository = LedgerRepository(self.db)
-        self.dashboard_view = DashboardView(self.repository, self.ledger_repository)
+        self.dashboard_view = DashboardView(
+            self.repository,
+            self.ledger_repository,
+            self.settings_repository,
+            data_dir / "exports",
+        )
         self.records_view = RecordsView(
             self.repository,
             self.ledger_repository,
@@ -49,6 +54,7 @@ class WorkTimeApp(toga.App):
             self.ledger_repository,
             self.repository,
             self.refresh_views,
+            data_dir,
         )
         self.tabs = toga.OptionContainer(
             content=[

@@ -69,17 +69,18 @@ def install_fake_toga(monkeypatch):
         "ConfirmDialog",
         "InfoDialog",
         "ErrorDialog",
+        "SaveFileDialog",
+        "OpenFileDialog",
     ):
         setattr(toga, name, type(name, (Widget,), {}))
     toga.Box = Box
     toga.ScrollContainer = ScrollContainer
+
     class MainWindow:
         async def dialog(self, dialog):
             return True
 
-    toga.App = type(
-        "App", (), {"app": types.SimpleNamespace(main_window=MainWindow())}
-    )
+    toga.App = type("App", (), {"app": types.SimpleNamespace(main_window=MainWindow())})
     style = types.ModuleType("toga.style")
     style.Pack = lambda **kwargs: kwargs
     pack = types.ModuleType("toga.style.pack")
@@ -114,7 +115,9 @@ class RecordRepository:
         return []
 
     def get_by_date(self, work_date):
-        return next((record for record in self.all() if record.work_date == work_date), None)
+        return next(
+            (record for record in self.all() if record.work_date == work_date), None
+        )
 
     def recent(self, limit=7):
         return []
@@ -239,8 +242,7 @@ def test_analysis_refresh_recalculates_the_selected_month(monkeypatch):
 
 def _calendar_rows():
     return [
-        WorkRecord(date(2026, 9, day), "08:00", "17:00", id=day)
-        for day in (3, 2, 1)
+        WorkRecord(date(2026, 9, day), "08:00", "17:00", id=day) for day in (3, 2, 1)
     ]
 
 
@@ -303,9 +305,10 @@ def test_monthly_card_delete_refreshes_without_the_deleted_record(monkeypatch):
     view.build()
     asyncio.run(view.delete_record(rows[1]))
 
-    assert [
-        card.children[0].children[0].text for card in view.list.children
-    ] == ["09/03", "09/01"]
+    assert [card.children[0].children[0].text for card in view.list.children] == [
+        "09/03",
+        "09/01",
+    ]
 
 
 def test_monthly_cards_use_central_calculator_and_selected_month(monkeypatch):
