@@ -148,6 +148,25 @@ def build_configuration_check() -> None:
             raise RuntimeError(
                 f"OptionContainer requires Android Gradle dependency {MATERIAL_DEPENDENCY}"
             )
+    forbidden_dialog_apis = (
+        "toga.OpenFileDialog",
+        "toga.SaveFileDialog",
+        "window.open_file_dialog",
+        "window.save_file_dialog",
+        "multiselect=",
+        "multiple_select=",
+    )
+    dialog_offenders = [
+        f"{path.relative_to(ROOT)}: {token}"
+        for path in (ROOT / "src/worktime_tracker").rglob("*.py")
+        for token in forbidden_dialog_apis
+        if token in path.read_text(encoding="utf-8")
+    ]
+    if dialog_offenders:
+        raise RuntimeError(
+            "Android runtime must use SAF, not Toga file dialogs: "
+            + ", ".join(dialog_offenders)
+        )
     policy = json.loads(
         (ROOT / "android/backup_policy.json").read_text(encoding="utf-8")
     )

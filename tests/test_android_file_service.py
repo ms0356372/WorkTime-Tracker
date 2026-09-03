@@ -122,10 +122,18 @@ def test_cancelled_picker_is_not_an_error():
 
 def test_android_flow_never_uses_toga_file_dialogs():
     root = Path(__file__).parents[1]
-    source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (root / "src/worktime_tracker").rglob("*.py")
+    forbidden = (
+        "toga.OpenFileDialog",
+        "toga.SaveFileDialog",
+        "window.open_file_dialog",
+        "window.save_file_dialog",
+        "multiselect=",
+        "multiple_select=",
     )
-    assert "toga.OpenFileDialog" not in source
-    assert "toga.SaveFileDialog" not in source
-    assert "multiselect=" not in source
+    offenders = {
+        str(path.relative_to(root)): token
+        for path in (root / "src/worktime_tracker").rglob("*.py")
+        for token in forbidden
+        if token in path.read_text(encoding="utf-8")
+    }
+    assert offenders == {}
