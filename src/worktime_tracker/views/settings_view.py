@@ -262,10 +262,18 @@ class SettingsView:
         years = holiday_sync_years(date.today())
         results = []
         for year in years:
-            # Native Android networking must not run on the UI thread.
-            results.append(await asyncio.to_thread(self.calendar.sync_year, year))
-        self.refresh()
+            # Only native Android networking and parsing run off the UI thread.
+            download = await asyncio.to_thread(self.calendar.fetch_year_data, year)
+            # The repository connection belongs to this event-loop/UI thread.
+            results.append(self.calendar.save_year_data(download))
         succeeded = [result for result in results if result.success]
+        if succeeded:
+            if self.records:
+                WorkRecordService(
+                    self.records, self.ledger, self.settings, self.calendar
+                ).rebuild_ledger()
+            self.refresh()
+            self._notify()
         title = "國定假日更新結果"
         message = "\n".join(
             f"{result.year}：更新成功（{result.holiday_count} 個假日）"
@@ -274,9 +282,6 @@ class SettingsView:
             for result in results
         )
         await self.app.main_window.dialog(toga.InfoDialog(title, message))
-        if succeeded and self.records:
-            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
-            self._notify()
 
     async def save_override(self, widget):
         if not self.calendar:

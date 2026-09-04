@@ -71,6 +71,19 @@ class HolidaySyncResult:
         return self.success
 
 
+@dataclass(frozen=True)
+class HolidayDownloadResult:
+    """Immutable output of the network-only portion of a holiday sync."""
+
+    success: bool
+    year: int
+    holidays: tuple[tuple[date, str], ...] = ()
+    source: str | None = None
+    resource_description: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 def _parse_date(value: str) -> date:
     value = value.strip().replace("/", "")
     if len(value) == 7:  # ROC yyyMMdd
@@ -249,8 +262,10 @@ class WorkCalendarService:
                 result.append(day)
         return result
 
-    def sync_year(self, year: int, url: str = OFFICIAL_CALENDAR_URL) -> HolidaySyncResult:
-        """Atomically replace one year only after metadata, CSV, and year validation."""
+    def fetch_year_data(
+        self, year: int, url: str = OFFICIAL_CALENDAR_URL
+    ) -> HolidayDownloadResult:
+        """Download and validate one year without accessing repositories or SQLite."""
         roc_year = year - 1911
         try:
             print(
@@ -281,10 +296,12 @@ class WorkCalendarService:
                 raise OfficialCalendarYearMismatch(
                     f"下載的資料不包含 {year} 年國定假日資料。"
                 )
-            self.holidays.replace_year(year, selected, ONLINE_SOURCE)
-            print(f"Holiday cache saved: year={year}, count={len(selected)}")
-            return HolidaySyncResult(
-                True, year, len(selected), ONLINE_SOURCE, resource.description
+            return HolidayDownloadResult(
+                True,
+                year,
+                tuple(selected),
+                ONLINE_SOURCE,
+                resource.description,
             )
         except Exception as exc:
             print(
@@ -293,7 +310,48 @@ class WorkCalendarService:
             )
             traceback.print_exc()
             code, message = self._classify_error(exc)
-            return HolidaySyncResult(False, year, error_code=code, error_message=message)
+            return HolidayDownloadResult(
+                False, year, error_code=code, error_message=message
+            )
+
+    def save_year_data(self, result: HolidayDownloadResult) -> HolidaySyncResult:
+        """Persist validated download output on the repository owner's thread."""
+        if not result.success:
+            return HolidaySyncResult(
+                False,
+                result.year,
+                error_code=result.error_code,
+                error_message=result.error_message,
+            )
+        try:
+            self.holidays.replace_year(result.year, result.holidays, ONLINE_SOURCE)
+            print(
+                f"Holiday cache saved: year={result.year}, count={len(result.holidays)}"
+            )
+            return HolidaySyncResult(
+                True,
+                result.year,
+                len(result.holidays),
+                result.source,
+                result.resource_description,
+            )
+        except Exception as exc:
+            print(
+                f"Holiday cache save failed: year={result.year}, "
+                f"error={type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            traceback.print_exc()
+            return HolidaySyncResult(
+                False,
+                result.year,
+                error_code="DATABASE_ERROR",
+                error_message=f"無法儲存國定假日資料：{exc}",
+            )
+
+    def sync_year(self, year: int, url: str = OFFICIAL_CALENDAR_URL) -> HolidaySyncResult:
+        """Convenience API that downloads and saves on the calling thread."""
+        return self.save_year_data(self.fetch_year_data(year, url))
 
     def _fetch(self, url: str, stage: str) -> bytes:
         try:
