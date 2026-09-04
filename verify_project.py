@@ -96,7 +96,7 @@ def database_check() -> None:
     from worktime_tracker.database import Database
 
     db = Database(":memory:")
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def excel_check() -> None:

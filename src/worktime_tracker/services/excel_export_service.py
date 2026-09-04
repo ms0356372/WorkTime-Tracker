@@ -11,6 +11,7 @@ from worktime_tracker.services.analytics_service import (
 )
 from worktime_tracker.services.worktime_calculator import calculate_work_minutes
 from worktime_tracker.utils.formatting import format_minutes
+from worktime_tracker.utils.leave_year import get_current_cycle_range
 
 
 def export_filename(scope: str, today=None, start_date=None, end_date=None):
@@ -191,11 +192,15 @@ def export_xlsx(
     leave.write_row(
         4, 0, ["特休結算日", _setting(settings, "annual_leave_settlement_date", "")]
     )
-    row = 6
+    leave.write_row(5, 0, ["補休結算日", _setting(settings, "comp_leave_settlement_date", "")])
+    row = 7
     for entry in ledger:
-        if entry.ledger_origin != LedgerOrigin.MANUAL or entry.transaction_type not in {
+        if entry.transaction_type not in {
             TransactionType.LEAVE_CONVERSION,
             TransactionType.REVERSAL,
+            TransactionType.ANNUAL_LEAVE_GRANT,
+            TransactionType.ANNUAL_LEAVE_SETTLEMENT,
+            TransactionType.COMP_LEAVE_SETTLEMENT,
         }:
             continue
         leave.write_row(
@@ -227,13 +232,21 @@ def export_xlsx(
             _setting(settings, "leave_deduction_priority", "COMP_TIME_FIRST"),
         ),
         (
-            "年度特休總時數",
+            "本年度特休核給時數",
             format_minutes(
                 int(_setting(settings, "annual_leave_total_minutes", "0") or 0)
             ),
         ),
         ("特休結算日", _setting(settings, "annual_leave_settlement_date", "")),
+        ("補休結算日", _setting(settings, "comp_leave_settlement_date", "")),
     ]
+    report_today = today or date.today()
+    for label, key in (("目前特休年度", "annual_leave_settlement_date"), ("目前補休年度", "comp_leave_settlement_date")):
+        value = _setting(settings, key, "")
+        if value:
+            settlement = date.fromisoformat(value)
+            cycle_start, cycle_end = get_current_cycle_range(report_today, settlement.month, settlement.day)
+            config_rows.append((label, f"{cycle_start:%Y/%m/%d} ～ {cycle_end:%Y/%m/%d}"))
     for row, values in enumerate(config_rows, 1):
         config.write_row(row, 0, values)
     workbook.close()

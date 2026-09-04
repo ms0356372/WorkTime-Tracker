@@ -20,3 +20,10 @@ def get_current_leave_year_range(
         return previous + timedelta(days=1), settlement
     following = safe_settlement_date(today.year + 1, settlement_month, settlement_day)
     return settlement + timedelta(days=1), following
+
+
+def get_current_cycle_range(
+    today: date, settlement_month: int, settlement_day: int
+) -> tuple[date, date]:
+    """Shared annual/comp cycle helper (the settlement day closes the cycle)."""
+    return get_current_leave_year_range(today, settlement_month, settlement_day)

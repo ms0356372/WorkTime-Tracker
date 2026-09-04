@@ -75,6 +75,31 @@ class WorkRecordService:
 
     def rebuild_ledger(self):
         opening = int(self.settings.get("annual_leave_total_minutes", "0") or 0)
+        from worktime_tracker.database.repositories import LeaveCycleRepository
+        from worktime_tracker.utils.leave_year import get_current_cycle_range
+
+        today = self.today_provider()
+        cycles = LeaveCycleRepository(self.records.db)
+        annual_setting = date.fromisoformat(
+            self.settings.get("annual_leave_settlement_date", f"{today.year}-12-31")
+        )
+        annual_start, annual_end = get_current_cycle_range(
+            today, annual_setting.month, annual_setting.day
+        )
+        cycles.ensure_annual(annual_start, annual_end, opening)
+        comp_setting = date.fromisoformat(
+            self.settings.get("comp_leave_settlement_date", annual_setting.isoformat())
+        )
+        comp_start, comp_end = get_current_cycle_range(
+            today, comp_setting.month, comp_setting.day
+        )
+        cycles.ensure_comp(comp_start, comp_end)
+        activation_date = date.fromisoformat(self.settings.get(
+            "settlement_engine_activation_date", today.isoformat()
+        ))
+        # A cycle that began before activation is the migration-safe legacy opening.
+        # If activation is exactly the cycle start, its explicit grant is authoritative.
+        legacy_opening = opening if annual_start < activation_date else 0
         kwargs = {}
         if hasattr(self.settings, "tracking_start_date") and hasattr(
             self.calendar, "get_missing_workdays"
@@ -84,12 +109,17 @@ class WorkRecordService:
                 "tracking_start_date": self.settings.tracking_start_date(
                     self.today_provider()
                 ),
-                "today": self.today_provider(),
+                "today": today,
             }
+        kwargs.update({
+            "annual_cycles": cycles.annual_all(),
+            "comp_cycles": cycles.comp_all(),
+            "activation_date": activation_date,
+        })
         return self.ledger.rebuild_for_records(
             self.balances,
             self.records.all(),
-            opening,
+            legacy_opening,
             self.settings.deduction_priority(),
             **kwargs,
         )

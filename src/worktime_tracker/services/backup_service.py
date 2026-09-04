@@ -28,6 +28,7 @@ SOURCE_TABLES = (
     "work_records",
     "settings",
     "leave_cycles",
+    "comp_leave_cycles",
     "monthly_settlements",
     "app_metadata",
     "calendar_overrides",
@@ -49,6 +50,7 @@ TABLE_COLUMNS = {
     },
     "settings": {"key", "value", "effective_date"},
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
+    "comp_leave_cycles": {"id", "start_date", "end_date"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
     "calendar_overrides": {"id", "work_date", "day_type", "note", "created_at", "updated_at"},
@@ -58,6 +60,7 @@ REQUIRED_COLUMNS = {
     "work_records": {"id", "work_date", "clock_in", "clock_out"},
     "settings": {"key", "value"},
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
+    "comp_leave_cycles": {"id", "start_date", "end_date"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
     "calendar_overrides": {"id", "work_date", "day_type"},
@@ -167,6 +170,8 @@ def inspect_backup(path):
         raise BackupValidationError("備份紀錄數量與 manifest 不一致。")
     backup_version = manifest["backup_format_version"]
     for table, allowed in TABLE_COLUMNS.items():
+        if table == "comp_leave_cycles" and table not in tables:
+            continue
         if backup_version == 1 and table in {"calendar_overrides", "official_holidays"}:
             continue
         rows = tables.get(table, [])
@@ -256,6 +261,10 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
     create_backup(db, safety_path)
     tables = data["tables"]
     settings = {row["key"]: row["value"] for row in tables["settings"]}
+    annual_settlement = settings.get("annual_leave_settlement_date", "2000-12-31")
+    settings.setdefault("annual_leave_settlement_date", annual_settlement)
+    settings.setdefault("comp_leave_settlement_date", annual_settlement)
+    settings.setdefault("settlement_engine_activation_date", date.today().isoformat())
     records = [_record(row) for row in tables["work_records"]]
     manual = [_ledger(row) for row in data["manual_ledger_events"]]
     priority = DeductionPriority(
@@ -269,6 +278,10 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
             fault_injector()
         for table in SOURCE_TABLES:
             _insert_rows(con, table, tables.get(table, []))
+        for key in ("annual_leave_settlement_date", "comp_leave_settlement_date", "settlement_engine_activation_date"):
+            con.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (key, settings[key])
+            )
         if "work_tracking_start_date" not in settings:
             restored_today = date.today().isoformat()
             con.execute(
@@ -298,6 +311,9 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
             manual_transactions=manual,
             calendar=calendar,
             tracking_start_date=date.fromisoformat(settings["work_tracking_start_date"]),
+            annual_cycles=con.execute("SELECT * FROM leave_cycles ORDER BY start_date").fetchall(),
+            comp_cycles=con.execute("SELECT * FROM comp_leave_cycles ORDER BY start_date").fetchall(),
+            activation_date=date.fromisoformat(settings["settlement_engine_activation_date"]),
         )
         for entry in rebuilt:
             if entry.ledger_origin == LedgerOrigin.MANUAL:

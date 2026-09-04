@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 class Database:
     def __init__(
@@ -22,6 +22,7 @@ class Database:
 
     def migrate(self) -> None:
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
+        existing_install = version > 0
         if version < 1:
             self.connection.executescript("""
             CREATE TABLE work_records(id INTEGER PRIMARY KEY, work_date TEXT NOT NULL UNIQUE, clock_in TEXT, clock_out TEXT, break_start TEXT, break_end TEXT, deduct_break INTEGER NOT NULL DEFAULT 1, standard_minutes INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', workday_type TEXT NOT NULL, overnight INTEGER NOT NULL DEFAULT 0);
@@ -82,6 +83,54 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('work_tracking_start_date',?)",
                 (self.today_provider().isoformat(),),
             )
+            version = 3
+        if version < 4:
+            today = self.today_provider()
+            annual_value = self.connection.execute(
+                "SELECT value FROM settings WHERE key='annual_leave_settlement_date'"
+            ).fetchone()
+            annual_settlement = annual_value[0] if annual_value else f"{today.year}-12-31"
+            total_value = self.connection.execute(
+                "SELECT value FROM settings WHERE key='annual_leave_total_minutes'"
+            ).fetchone()
+            total = int(total_value[0]) if total_value else 0
+            from worktime_tracker.utils.leave_year import get_current_cycle_range
+            settlement = date.fromisoformat(annual_settlement)
+            cycle_start, cycle_end = get_current_cycle_range(today, settlement.month, settlement.day)
+            self.connection.executescript("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_leave_cycles_range ON leave_cycles(start_date,end_date);
+            CREATE TABLE IF NOT EXISTS comp_leave_cycles(
+                id INTEGER PRIMARY KEY,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                UNIQUE(start_date,end_date)
+            );
+            """)
+            self.connection.execute(
+                "INSERT OR IGNORE INTO leave_cycles(start_date,end_date,total_minutes) VALUES(?,?,?)",
+                (cycle_start.isoformat(), cycle_end.isoformat(), total),
+            )
+            self.connection.execute(
+                "INSERT OR IGNORE INTO comp_leave_cycles(start_date,end_date) VALUES(?,?)",
+                (cycle_start.isoformat(), cycle_end.isoformat()),
+            )
+            self.connection.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('annual_leave_settlement_date',?)",
+                (annual_settlement,),
+            )
+            self.connection.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('comp_leave_settlement_date',?)",
+                (annual_settlement,),
+            )
+            self.connection.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('settlement_engine_activation_date',?)",
+                (today.isoformat(),),
+            )
+            if not existing_install:
+                self.connection.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('leave_deduction_priority','ANNUAL_LEAVE_FIRST')"
+                )
+            self.connection.execute("PRAGMA user_version=4")
         self.connection.commit()
 
     @contextmanager
