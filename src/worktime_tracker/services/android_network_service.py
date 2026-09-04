@@ -76,7 +76,7 @@ class AndroidNetworkService:
             timeout_ms = int(timeout * 1000)
             connection.setConnectTimeout(timeout_ms)
             connection.setReadTimeout(timeout_ms)
-            connection.setRequestProperty("User-Agent", "WorkTimeTracker/0.8.4")
+            connection.setRequestProperty("User-Agent", "WorkTimeTracker/0.8.5")
             connection.setRequestProperty("Accept", "application/json,text/csv,*/*")
             status = int(connection.getResponseCode())
             print(f"Android HTTPS response: status={status}, url={url}", flush=True)
@@ -134,7 +134,7 @@ class PythonHttpsDownloader:
         return context
 
     def download_bytes(self, url: str, timeout: int = 15) -> bytes:
-        request = Request(url, headers={"User-Agent": "WorkTimeTracker/0.8.4"})
+        request = Request(url, headers={"User-Agent": "WorkTimeTracker/0.8.5"})
         try:
             with urlopen(request, timeout=timeout, context=self._ssl_context()) as response:
                 status = int(getattr(response, "status", 200))

@@ -122,6 +122,7 @@ class LeaveBalanceService:
         comp_cycles=(),
         activation_date: date | None = None,
         comp_policies=(),
+        current_comp_cycle_start: date | None = None,
     ) -> list[LedgerEntry]:
         """Rebuild system events, retain manual audit events, then replay chronologically."""
         records = list(records)
@@ -218,15 +219,35 @@ class LeaveBalanceService:
             return valid[-1] if valid else {"effective_from": day.isoformat(), "mode": "ANNUAL",
                                            "monthly_cap_minutes": 2400, "cash_hourly_rate_cents": 0}
 
-        # Completed month ends are deterministic events.  The first MONTHLY policy
-        # date is the non-retroactive boundary for upgraded installations.
-        monthly_starts = [date.fromisoformat(p["effective_from"]) for p in policies if p["mode"] == "MONTHLY"]
-        if monthly_starts:
-            cursor = min(monthly_starts).replace(day=1)
+        # MONTHLY is the rule for the current comp cycle, not a rule that starts
+        # on the day the settings form happened to be saved.  Restrict replay to
+        # that cycle so an upgrade never creates settlements for older years.
+        if current_comp_cycle_start is None:
+            current_cycle = next(
+                (c for c in comp_cycles
+                 if date.fromisoformat(c["start_date"]) <= effective_today
+                 <= date.fromisoformat(c["end_date"])),
+                None,
+            )
+            current_comp_cycle_start = (
+                date.fromisoformat(current_cycle["start_date"])
+                if current_cycle else None
+            )
+        if current_comp_cycle_start is None:
+            monthly_starts = [
+                date.fromisoformat(p["effective_from"])
+                for p in policies if p["mode"] == "MONTHLY"
+            ]
+            current_comp_cycle_start = min(monthly_starts) if monthly_starts else None
+        current_policy = policy_on(effective_today)
+        if current_comp_cycle_start and current_policy["mode"] == "MONTHLY":
+            cursor = current_comp_cycle_start.replace(day=1)
             while cursor < effective_today:
                 end = date(cursor.year, cursor.month, monthrange(cursor.year, cursor.month)[1])
                 p = policy_on(end)
-                if end < effective_today and p["mode"] == "MONTHLY" and end >= min(monthly_starts):
+                # A current-cycle policy saved at its cycle start governs every
+                # completed month in the cycle; the current month stays a preview.
+                if end < effective_today and end >= current_comp_cycle_start:
                     events.append(LedgerEntry(
                         end, "補休月結轉入", f"{end:%Y/%m} 月補休轉入年補休",
                         transaction_datetime=datetime.combine(end, time(23, 58)),

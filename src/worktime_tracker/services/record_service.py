@@ -114,6 +114,7 @@ class WorkRecordService:
         kwargs.update({
             "annual_cycles": cycles.annual_all(),
             "comp_cycles": cycles.comp_all(),
+            "current_comp_cycle_start": comp_start,
             "activation_date": activation_date,
             "comp_policies": self.settings.comp_policies() if hasattr(self.settings, "comp_policies") else (),
         })

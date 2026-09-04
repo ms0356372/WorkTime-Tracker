@@ -1,8 +1,8 @@
 # 工時管家（WorkTime Tracker）
 
-工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.4`。
+工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.5`。
 
-v0.8.4 在 Android 使用系統原生 HTTPS trust store 同步前一年度與目前年度，並使用政府資料集的資源描述與格式選取年度 CSV；內建 2026／2027 官方行事曆 fallback，今天及未來日期不會預扣。
+v0.8.5 修正目前補休年度內歷史工時補登後的 deterministic 月結重算，並讓年結算模式完全隱藏且不驗證月結專用設定。
 
 ## 功能與架構
 
@@ -69,7 +69,7 @@ python generate_demo_data.py
 
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
-`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.4-release.apk` 或 `工時管家-0.8.4-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.5-release.apk` 或 `工時管家-0.8.5-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
 
 Windows 雙擊 `build_android.bat` 只會執行檢查與 Debug APK 建置，不會呼叫 ADB、安裝 APK 或清除手機資料。
 
@@ -77,10 +77,10 @@ Windows 雙擊 `build_android.bat` 只會執行檢查與 Debug APK 建置，不�
 
 若舊版專案曾顯示 `Cannot import 'briefcase.integrations.setuptools'`，新版已改用標準 `setuptools.build_meta` editable-install backend。Android BAT 會先升級 `pip`、`setuptools`、`wheel`，再安裝 Briefcase，最後才執行 `pip install -e ".[dev]"`。既有 `.venv` 可直接再次執行 `build_android.bat` 進行修復；若該環境曾中途損壞，可刪除 `.venv` 後重新雙擊 BAT。
 
-## v0.8.4 補休結算
+## v0.8.5 補休結算
 
 補休可選擇「年結算」或「每月結算」，且兩種模式都保留年度補休結算日。年結算沿用單一餘額，直到結算日當日交易完成、隔日重建時才歸零。每月結算則把本月新取得的補休放入月補休，使用時先扣月補休、再扣年補休；已結束月份的月補休在單月上限內轉入年補休，超額部分依整數 cents 時薪折現，年補休不受單月上限限制。
 
 每月上限預設 40 小時、折現時薪預設 NT$250。有效日期政策會保存模式、上限與時薪，確保設定變更不改寫舊月份；從年結算切換時既有餘額歸入年補休，從每月結算切回年結算則合併兩個 bucket。Dashboard、分析頁及 Excel「補休結算」工作表會顯示月補休、年補休、總額、轉入與折現明細，完整備份也包含政策歷史。
 
-特休與補休可分別設定年度結算日；結算日當天仍可輸入交易，SYSTEM Ledger 只會在隔日重建時將舊年度餘額結清。特休在隔日依該年度 `leave_cycles` 保存的核給額度重新核給。升級使用者預設為年結算，並以 v0.8.4 啟用日為界，不追溯產生舊月份折現；新使用者的工時不足預設採特休優先。
+特休與補休可分別設定年度結算日；結算日當天仍可輸入交易，SYSTEM Ledger 只會在隔日重建時將舊年度餘額結清。特休在隔日依該年度 `leave_cycles` 保存的核給額度重新核給。MONTHLY 的上限與折現時薪適用於目前補休年度；歷史補登會重算本年度已完成月份，但不追溯上一補休年度。ANNUAL 不使用月上限或折現時薪。新使用者的工時不足預設採特休優先。

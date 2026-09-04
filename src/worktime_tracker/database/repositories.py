@@ -178,9 +178,32 @@ class SettingsRepository:
                         cash_hourly_rate_cents: int, effective_from: date | None = None) -> None:
         if mode not in {"ANNUAL", "MONTHLY"}:
             raise ValueError("補休結算方式無效。")
-        effective = effective_from or date.today()
+        if mode == "MONTHLY" and (
+            int(monthly_cap_minutes) <= 0 or int(cash_hourly_rate_cents) <= 0
+        ):
+            raise ValueError("每月結算的月補休上限與折現時薪必須大於 0。")
+        from worktime_tracker.utils.leave_year import get_current_cycle_range
+        today = self.db.today_provider() if hasattr(self.db, "today_provider") else date.today()
+        configured = date.fromisoformat(self.get(
+            "comp_leave_settlement_date", f"{today.year}-12-31"
+        ))
+        cycle_start, cycle_end = get_current_cycle_range(
+            today, configured.month, configured.day
+        )
+        if effective_from is None:
+            effective_from = cycle_start
+        effective = effective_from
         now = datetime.now(timezone.utc).isoformat()
         with self.db.transaction() as con:
+            if effective == cycle_start:
+                # One authoritative rule governs the open comp cycle. Remove
+                # obsolete same-cycle rows created by v0.8.4 save dates while
+                # retaining every closed-cycle policy.
+                con.execute(
+                    "DELETE FROM comp_settlement_policy_history "
+                    "WHERE effective_from>=? AND effective_from<=?",
+                    (cycle_start.isoformat(), cycle_end.isoformat()),
+                )
             con.execute(
                 "INSERT INTO comp_settlement_policy_history(effective_from,mode,monthly_cap_minutes,cash_hourly_rate_cents,created_at) "
                 "VALUES(?,?,?,?,?) ON CONFLICT(effective_from) DO UPDATE SET mode=excluded.mode,monthly_cap_minutes=excluded.monthly_cap_minutes,cash_hourly_rate_cents=excluded.cash_hourly_rate_cents",
@@ -386,6 +409,7 @@ class LedgerRepository:
         comp_cycles=(),
         activation_date=None,
         comp_policies=(),
+        current_comp_cycle_start=None,
     ):
         """Atomically replace derived events while preserving manual audit events."""
         manual = self.all(LedgerOrigin.MANUAL)
@@ -401,6 +425,7 @@ class LedgerRepository:
             comp_cycles=comp_cycles,
             activation_date=activation_date,
             comp_policies=comp_policies,
+            current_comp_cycle_start=current_comp_cycle_start,
         )
         with self.db.transaction() as con:
             con.execute(
