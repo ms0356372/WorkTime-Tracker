@@ -4,6 +4,8 @@ import { WorkTimeDatabase } from '../db/database'
 import type { CalendarOverride, LedgerEntry, WorkRecord } from '../models/domain'
 import {
   DexieLedgerRepository,
+  DexieHolidayRepository,
+  DexieSettingsRepository,
   DexieSpecialDateRepository,
   DexieWorkRecordRepository,
 } from '../repositories/dexieRepositories'
@@ -110,4 +112,11 @@ describe('DexieSpecialDateRepository', () => {
     expect(secondId).toBe(firstId)
     expect(await database.calendarOverrides.count()).toBe(1)
   })
+
+  it('deletes an override by date', async () => { const repository=new DexieSpecialDateRepository(createDatabase());await repository.save(calendarOverride());await repository.deleteByDate('2026-09-04');expect(await repository.all()).toEqual([]) })
+})
+
+describe('holiday and settings repositories',()=>{
+  it('replaces and queries an official holiday year',async()=>{const repository=new DexieHolidayRepository(createDatabase()),value={holidayDate:'2026-01-01' as const,name:'元旦',year:2026,source:'TEST',syncedAt:'now'};await repository.replaceYear(2026,[value]);expect(await repository.forYear(2026)).toEqual([value]);expect(await repository.get('2026-01-01')).toEqual(value)})
+  it('persists settings and lunch as string values',async()=>{const repository=new DexieSettingsRepository(createDatabase());await repository.set({key:'daily_standard_minutes',value:'450'});await repository.setLunchBreak('12:10','13:00');expect(await repository.get('daily_standard_minutes')).toBe('450');expect(await repository.get('lunch_break_start')).toBe('12:10')})
 })
