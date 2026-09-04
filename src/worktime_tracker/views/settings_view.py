@@ -69,14 +69,32 @@ class SettingsView:
         )
         self.comp_monthly_cap = toga.NumberInput(
             min=0, step=1,
-            value=int(self.settings.get("comp_monthly_cap_minutes", "2400") or 2400) / 60,
+            value=int(self.settings.get("comp_monthly_cap_minutes", "2400")) / 60,
         )
         self.comp_cash_rate = toga.NumberInput(
             min=0, step=1,
-            value=int(self.settings.get("comp_cash_hourly_rate_cents", "25000") or 25000) / 100,
+            value=int(self.settings.get("comp_cash_hourly_rate_cents", "25000")) / 100,
         )
         self.comp_mode_help = toga.Label("")
         self.comp_settlement_history = toga.Label("")
+        self.monthly_comp_settings_box = toga.Box(children=[
+            toga.Label("每月補休累計上限（小時）"),
+            self.comp_monthly_cap,
+            toga.Label("補休折現時薪（NT$/小時）"),
+            self.comp_cash_rate,
+            toga.Label("此設定適用於目前補休年度，修改後會重新計算本年度已完成月份的月結結果。"),
+            toga.Label("補休月結紀錄"),
+            self.comp_settlement_history,
+        ], style=Pack(direction=COLUMN, gap=8))
+        self.annual_comp_settings_box = toga.Box(children=[])
+        self._active_comp_settings_box = (
+            self.monthly_comp_settings_box if mode == "MONTHLY"
+            else self.annual_comp_settings_box
+        )
+        self.comp_settings_host = toga.Box(
+            children=[self._active_comp_settings_box],
+            style=Pack(direction=COLUMN, gap=8),
+        )
         self.leave_year_summary = toga.Label("")
         self.comp_year_summary = toga.Label("")
         self.annual_summary = toga.Label("")
@@ -129,17 +147,12 @@ class SettingsView:
             self.comp_mode_help,
             toga.Label("年度補休結算日"),
             self.comp_settlement,
-            toga.Label("每月補休累計上限（小時）"),
-            self.comp_monthly_cap,
-            toga.Label("補休折現時薪（NT$/小時）"),
-            self.comp_cash_rate,
+            self.comp_settings_host,
             toga.Label("補休年度計算期間為：補休結算日隔天至下一年度結算日當天。"),
             toga.Label("若結算日為 12/31，則 2026/1/1～2026/12/31 為同一補休年度。"),
             self.comp_year_summary,
             toga.Button("儲存補休設定", on_press=self.save_comp_leave),
             self.balances,
-            toga.Label("補休月結紀錄"),
-            self.comp_settlement_history,
             toga.Label("午休設定"),
             toga.Label("午休開始時間"),
             self.lunch_start,
@@ -241,10 +254,19 @@ class SettingsView:
         mode = "MONTHLY" if self.comp_mode.value == "每月結算" else "ANNUAL"
         cap = int(self.comp_monthly_cap.value or 0) * 60
         rate_cents = int(self.comp_cash_rate.value or 0) * 100
-        self.settings.set_comp_policy(mode, cap, rate_cents)
+        if mode == "MONTHLY" and (cap <= 0 or rate_cents <= 0):
+            await self.app.main_window.dialog(
+                toga.ErrorDialog("無法儲存", "每月結算的月補休上限與折現時薪必須大於 0。")
+            )
+            return
+        # Hidden MONTHLY values are retained while ANNUAL is selected.
+        cycle_start, _ = get_current_cycle_range(
+            date.today(), self.comp_settlement.value.month, self.comp_settlement.value.day
+        )
         self.settings.set(
             "comp_leave_settlement_date", self.comp_settlement.value.isoformat()
         )
+        self.settings.set_comp_policy(mode, cap, rate_cents, effective_from=cycle_start)
         if self.records:
             WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
         self.refresh()
@@ -269,9 +291,10 @@ class SettingsView:
 
     def _refresh_comp_mode(self):
         monthly = self.comp_mode.value == "每月結算"
-        if hasattr(self.comp_monthly_cap, "enabled"):
-            self.comp_monthly_cap.enabled = monthly
-            self.comp_cash_rate.enabled = monthly
+        wanted = self.monthly_comp_settings_box if monthly else self.annual_comp_settings_box
+        if wanted is not self._active_comp_settings_box:
+            self.comp_settings_host.replace(self._active_comp_settings_box, wanted)
+            self._active_comp_settings_box = wanted
         self.comp_mode_help.text = (
             "每月新產生的補休先累積於月補休；使用時先扣月補休，再扣年補休。\n"
             "月底上限內轉入年補休、超額折現；年度補休結算日後全部歸零。"
