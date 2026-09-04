@@ -1,5 +1,5 @@
 import type { WorkTimeDatabase } from '../db/database'
-import type { CalendarOverride, LedgerEntry, OfficialHoliday, Setting, WorkRecord } from '../models/domain'
+import type { CalendarOverride, ISODate, LedgerEntry, OfficialHoliday, Setting, WorkRecord } from '../models/domain'
 import type {
   HolidayRepository,
   LedgerRepository,
@@ -13,16 +13,25 @@ export class DexieWorkRecordRepository implements WorkRecordRepository {
   constructor(private database: WorkTimeDatabase) {}
 
   async save(record: WorkRecord): Promise<number> {
-    const found = await this.database.workRecords
-      .where('workDate')
-      .equals(record.workDate)
-      .first()
-    const value = found ? { ...record, id: found.id } : record
-
-    return this.database.workRecords.put(value)
+    return this.database.transaction('rw', this.database.workRecords, async () => {
+      const sameDate = await this.database.workRecords.where('workDate').equals(record.workDate).first()
+      if (record.id !== undefined) {
+        const original = await this.database.workRecords.get(record.id)
+        if (original && sameDate && sameDate.id !== record.id) {
+          await this.database.workRecords.delete(record.id)
+          return this.database.workRecords.put({ ...record, id: sameDate.id })
+        }
+        if (original) return this.database.workRecords.put({ ...record, id: record.id })
+      }
+      return this.database.workRecords.put(sameDate ? { ...record, id: sameDate.id } : record)
+    })
   }
 
-  getByDate(date: string): Promise<WorkRecord | undefined> {
+  getById(id: number): Promise<WorkRecord | undefined> {
+    return this.database.workRecords.get(id)
+  }
+
+  getByDate(date: ISODate): Promise<WorkRecord | undefined> {
     return this.database.workRecords.where('workDate').equals(date).first()
   }
 

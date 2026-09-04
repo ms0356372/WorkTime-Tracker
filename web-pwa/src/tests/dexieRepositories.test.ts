@@ -77,6 +77,21 @@ describe('DexieWorkRecordRepository', () => {
     expect(await database.workRecords.count()).toBe(1)
     expect((await repository.getByDate('2026-09-04'))?.note).toBe('updated')
   })
+
+  it('updates by ID without leaving the old date behind', async () => {
+    const database=createDatabase(),repository=new DexieWorkRecordRepository(database)
+    const id=await repository.save(workRecord())
+    await repository.save({...workRecord('moved'),id,workDate:'2026-10-01'})
+    expect(await repository.getByDate('2026-09-04')).toBeUndefined()
+    expect((await repository.getById(id))?.note).toBe('moved')
+    expect(await database.workRecords.count()).toBe(1)
+  })
+
+  it('deletes a record',async()=>{const database=createDatabase(),repository=new DexieWorkRecordRepository(database);const id=await repository.save(workRecord());await repository.delete(id);expect(await database.workRecords.count()).toBe(0)})
+
+  it('queries a calendar month in newest-first order',async()=>{const repository=new DexieWorkRecordRepository(createDatabase());await repository.save({...workRecord(),workDate:'2026-08-31'});await repository.save({...workRecord(),workDate:'2026-09-01'});await repository.save({...workRecord(),workDate:'2026-09-30'});await repository.save({...workRecord(),workDate:'2026-10-01'});expect((await repository.recordsForMonth(2026,9)).map(row=>row.workDate)).toEqual(['2026-09-30','2026-09-01'])})
+
+  it('returns only the newest requested recent records',async()=>{const repository=new DexieWorkRecordRepository(createDatabase());const dates:WorkRecord['workDate'][]=['2026-09-01','2026-09-03','2026-09-02'];for(const workDate of dates)await repository.save({...workRecord(),workDate});expect((await repository.recent(2)).map(row=>row.workDate)).toEqual(['2026-09-03','2026-09-02'])})
 })
 
 describe('DexieLedgerRepository', () => {

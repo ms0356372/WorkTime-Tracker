@@ -1,4 +1,5 @@
 export interface YearMonth {year:number;month:number}
+export function localISODate(date=new Date()):`${number}-${number}-${number}` {return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}` as `${number}-${number}-${number}`}
 export function previousMonth({year,month}:YearMonth):YearMonth{return month===1?{year:year-1,month:12}:{year,month:month-1}}
 export function nextMonth({year,month}:YearMonth):YearMonth{return month===12?{year:year+1,month:1}:{year,month:month+1}}
 function daysInMonth(year:number,month:number){return new Date(Date.UTC(year,month,0)).getUTCDate()}
