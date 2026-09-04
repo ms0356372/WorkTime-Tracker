@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest';import {nextMonth,previousMonth,safeSettlementDate} from '../utils/date'
+describe('calendar helpers',()=>{it('crosses years without ±30 day arithmetic',()=>{expect(previousMonth({year:2026,month:1})).toEqual({year:2025,month:12});expect(nextMonth({year:2026,month:12})).toEqual({year:2027,month:1})});it('clamps leap settlement days',()=>{expect(safeSettlementDate(2025,2,29)).toBe('2025-02-28');expect(safeSettlementDate(2024,2,29)).toBe('2024-02-29')})})
