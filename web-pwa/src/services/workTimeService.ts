@@ -1,0 +1,3 @@
+import type { WorkRecord } from '../models/domain'; import { timeToMinutes } from '../utils/time'
+export function calculateWorkMinutes(record:WorkRecord):number { if(!record.clockIn||!record.clockOut)return 0; const start=timeToMinutes(record.clockIn),rawEnd=timeToMinutes(record.clockOut); let end=rawEnd;if(end<start){if(!record.overnight)throw new Error('下班時間早於上班時間，請啟用跨日。');end+=1440}let worked=end-start;if(record.deductBreak&&record.breakStart&&record.breakEnd){let bs=timeToMinutes(record.breakStart),be=timeToMinutes(record.breakEnd);if(be<bs)be+=1440; worked-=Math.max(0,Math.min(end,be)-Math.max(start,bs))}return Math.max(worked,0) }
+export function calculateDailyDifference(actualMinutes:number,standardMinutes:number){return actualMinutes-standardMinutes}

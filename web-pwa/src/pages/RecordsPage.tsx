@@ -1,0 +1,2 @@
+import { Card } from '../components/Card'
+export function RecordsPage(){return <><div className="eyebrow">每日紀錄</div><h2 className="page-title">新增工時</h2><Card><div className="form-grid"><label>日期<input type="date"/></label><label>上班時間<input type="time"/></label><label>下班時間<input type="time"/></label><label className="wide">備註<input placeholder="選填"/></label></div><button disabled>儲存紀錄（CRUD 後續階段）</button></Card><Card title="本日工時"><strong>0 小時 0 分</strong></Card><Card title="最近紀錄"><p className="empty">尚無工時紀錄</p></Card></>}
