@@ -1,6 +1,8 @@
 """v0.8.2 semantic selection, fallback, and TLS diagnostic regressions."""
 
+import asyncio
 import json
+import threading
 from datetime import date
 from urllib.error import URLError
 
@@ -190,3 +192,37 @@ def test_sync_years_are_previous_then_current_gregorian_year():
 
     assert holiday_sync_years(date(2026, 9, 3)) == (2025, 2026)
     assert holiday_sync_years(date(2027, 1, 1)) == (2026, 2027)
+
+
+def test_worker_fetch_does_not_write_repository(tmp_path):
+    db, calendar = service(tmp_path)
+    metadata = json.dumps(metadata_fixture(), ensure_ascii=False).encode()
+    csv_payload = "西元日期,是否放假,備註\n20260101,2,線上元旦\n".encode()
+    calendar.fetcher = lambda url: metadata if url.endswith("14718") else csv_payload
+    original_replace = calendar.holidays.replace_year
+    worker_thread = None
+
+    def reject_worker_write(*args, **kwargs):
+        assert threading.current_thread() is threading.main_thread()
+        return original_replace(*args, **kwargs)
+
+    calendar.holidays.replace_year = reject_worker_write
+
+    async def fetch_in_worker():
+        nonlocal worker_thread
+
+        def fetch():
+            nonlocal worker_thread
+            worker_thread = threading.current_thread()
+            return calendar.fetch_year_data(2026)
+
+        return await asyncio.to_thread(fetch)
+
+    downloaded = asyncio.run(fetch_in_worker())
+    assert worker_thread is not threading.main_thread()
+    assert downloaded.success
+    assert OfficialHolidayRepository(db).for_year(2026) == []
+
+    saved = calendar.save_year_data(downloaded)
+    assert saved.success
+    assert OfficialHolidayRepository(db).get(date(2026, 1, 1))["source"] == ONLINE_SOURCE
