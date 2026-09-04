@@ -121,6 +121,7 @@ class LeaveBalanceService:
         annual_cycles=(),
         comp_cycles=(),
         activation_date: date | None = None,
+        comp_policies=(),
     ) -> list[LedgerEntry]:
         """Rebuild system events, retain manual audit events, then replay chronologically."""
         records = list(records)
@@ -160,7 +161,7 @@ class LeaveBalanceService:
                     transaction_type=TransactionType.ANNUAL_LEAVE_GRANT,
                     ledger_origin=LedgerOrigin.SYSTEM,
                 ))
-            if activation <= end <= effective_today:
+            if activation <= end < effective_today:
                 events.append(LedgerEntry(
                     end, "特休年度結算", f"結算 {start:%Y/%m/%d}～{end:%Y/%m/%d}",
                     transaction_datetime=datetime.combine(end, time(23, 59, 59)),
@@ -170,7 +171,7 @@ class LeaveBalanceService:
         for cycle in comp_cycles:
             start = date.fromisoformat(cycle["start_date"])
             end = date.fromisoformat(cycle["end_date"])
-            if activation <= end <= effective_today:
+            if activation <= end < effective_today:
                 events.append(LedgerEntry(
                     end, "補休年度結算", f"結算 {start:%Y/%m/%d}～{end:%Y/%m/%d}",
                     transaction_datetime=datetime.combine(end, time(23, 59, 59)),
@@ -205,27 +206,79 @@ class LeaveBalanceService:
                 event.reason = "正常上班日無工時紀錄"
                 event.transaction_type = TransactionType.MISSING_WORKDAY_DEDUCTION
                 events.append(event)
+        policies = sorted(
+            [dict(p) for p in comp_policies], key=lambda p: p["effective_from"]
+        )
+        if not policies:
+            policies = [{"effective_from": activation.isoformat(), "mode": "ANNUAL",
+                         "monthly_cap_minutes": 2400, "cash_hourly_rate_cents": 0}]
+
+        def policy_on(day):
+            valid = [p for p in policies if date.fromisoformat(p["effective_from"]) <= day]
+            return valid[-1] if valid else {"effective_from": day.isoformat(), "mode": "ANNUAL",
+                                           "monthly_cap_minutes": 2400, "cash_hourly_rate_cents": 0}
+
+        # Completed month ends are deterministic events.  The first MONTHLY policy
+        # date is the non-retroactive boundary for upgraded installations.
+        monthly_starts = [date.fromisoformat(p["effective_from"]) for p in policies if p["mode"] == "MONTHLY"]
+        if monthly_starts:
+            cursor = min(monthly_starts).replace(day=1)
+            while cursor < effective_today:
+                end = date(cursor.year, cursor.month, monthrange(cursor.year, cursor.month)[1])
+                p = policy_on(end)
+                if end < effective_today and p["mode"] == "MONTHLY" and end >= min(monthly_starts):
+                    events.append(LedgerEntry(
+                        end, "補休月結轉入", f"{end:%Y/%m} 月補休轉入年補休",
+                        transaction_datetime=datetime.combine(end, time(23, 58)),
+                        transaction_type=TransactionType.COMP_MONTHLY_TRANSFER,
+                        ledger_origin=LedgerOrigin.SYSTEM,
+                        cash_hourly_rate_cents=int(p["cash_hourly_rate_cents"]),
+                    ))
+                cursor = (end + timedelta(days=1)).replace(day=1)
+
         events.sort(key=self._sort_key)
-        comp = annual = 0
+        comp = annual = monthly_comp = annual_comp = 0
         rebuilt: list[LedgerEntry] = []
-        current_month = None
+        previous_mode = "ANNUAL"
         for event in events:
-            month = (event.entry_date.year, event.entry_date.month)
-            if (
-                current_month
-                and month != current_month
-                and monthly_cap is not None
-                and cap_rule in {"月結", "歸零"}
-            ):
-                settlement = self._settlement(current_month, comp, annual, monthly_cap)
-                if settlement:
-                    comp += settlement.comp_change
-                    rebuilt.append(settlement)
-            current_month = month
+            policy = policy_on(event.entry_date)
+            mode = policy["mode"]
+            if mode != previous_mode:
+                if mode == "MONTHLY":
+                    annual_comp, monthly_comp = comp, 0
+                else:
+                    annual_comp, monthly_comp = comp, 0
+                previous_mode = mode
             if event.transaction_type == TransactionType.ANNUAL_LEAVE_SETTLEMENT:
                 event.annual_change = -annual
             elif event.transaction_type == TransactionType.COMP_LEAVE_SETTLEMENT:
                 event.comp_change = -comp
+                monthly_comp = annual_comp = 0
+            elif event.transaction_type == TransactionType.COMP_MONTHLY_TRANSFER:
+                cap = max(int(policy["monthly_cap_minutes"]), 0)
+                pre_monthly = monthly_comp
+                transfer = min(max(pre_monthly, 0), cap)
+                cash = max(pre_monthly - cap, 0)
+                monthly_comp -= transfer
+                annual_comp += transfer
+                event.comp_change = 0
+                event.source_minutes = transfer
+                event.target_minutes = cap
+                event.note = (
+                    f"結算前月補休 {pre_monthly} 分；轉入 {transfer} 分；折現 {cash} 分；"
+                    f"policy {policy['effective_from']}"
+                )
+                # A separate, explicit cash ledger event makes both actions auditable.
+                cash_event = LedgerEntry(
+                    event.entry_date, "補休超額折現", f"{event.entry_date:%Y/%m} 超額補休折現",
+                    comp_change=-cash,
+                    transaction_datetime=datetime.combine(event.entry_date, time(23, 58, 30)),
+                    transaction_type=TransactionType.COMP_MONTHLY_CASH_SETTLEMENT,
+                    ledger_origin=LedgerOrigin.SYSTEM,
+                    source_minutes=cash,
+                    cash_hourly_rate_cents=int(policy["cash_hourly_rate_cents"]),
+                    cash_amount_cents=(cash * int(policy["cash_hourly_rate_cents"]) + 30) // 60,
+                )
             elif event.transaction_type in {
                 TransactionType.WORKTIME_DEDUCTION,
                 TransactionType.MISSING_WORKDAY_DEDUCTION,
@@ -244,13 +297,47 @@ class LeaveBalanceService:
                     replacement.reason = "正常上班日無工時紀錄"
                     replacement.transaction_type = TransactionType.MISSING_WORKDAY_DEDUCTION
                 event = replacement
-            comp += event.comp_change
+            # Apply every ordinary comp delta to the correct bucket. Deductions
+            # consume monthly comp first, then annual comp (which retains legacy
+            # negative-deficit behaviour).
+            if event.transaction_type not in {TransactionType.COMP_MONTHLY_TRANSFER,
+                                               TransactionType.COMP_LEAVE_SETTLEMENT}:
+                delta = event.comp_change
+                if mode == "MONTHLY":
+                    if event.entry_type == "年度期初":
+                        annual_comp += delta
+                    elif delta >= 0:
+                        monthly_comp += delta
+                    else:
+                        needed = -delta
+                        used = min(max(monthly_comp, 0), needed)
+                        monthly_comp -= used
+                        annual_comp -= needed - used
+                else:
+                    annual_comp += delta
+                    monthly_comp = 0
+            comp = monthly_comp + annual_comp
             annual += event.annual_change
             event.comp_balance = comp
             event.annual_balance = annual
+            event.monthly_comp_balance = monthly_comp
+            event.annual_comp_balance = annual_comp
             rebuilt.append(event)
-        if current_month and monthly_cap is not None and cap_rule in {"月結", "歸零"}:
-            settlement = self._settlement(current_month, comp, annual, monthly_cap)
+            if event.transaction_type == TransactionType.COMP_MONTHLY_TRANSFER:
+                monthly_comp = 0
+                cash_event.monthly_comp_balance = 0
+                cash_event.annual_comp_balance = annual_comp
+                cash_event.comp_balance = annual_comp
+                cash_event.annual_balance = annual
+                rebuilt.append(cash_event)
+                comp = annual_comp
+        # Compatibility for the pre-v0.8.4 caller-level cap API. New
+        # policy-driven MONTHLY mode never caps the combined balance.
+        if monthly_cap is not None and cap_rule in {"月結", "歸零"} and not comp_policies and events:
+            last = max(events, key=self._sort_key)
+            settlement = self._settlement(
+                (last.entry_date.year, last.entry_date.month), comp, annual, monthly_cap
+            )
             if settlement:
                 rebuilt.append(settlement)
         return sorted(rebuilt, key=self._sort_key)

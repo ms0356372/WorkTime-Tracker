@@ -169,6 +169,28 @@ class SettingsRepository:
                 (key, value),
             )
 
+    def comp_policies(self):
+        return list(self.db.connection.execute(
+            "SELECT * FROM comp_settlement_policy_history ORDER BY effective_from,id"
+        ))
+
+    def set_comp_policy(self, mode: str, monthly_cap_minutes: int,
+                        cash_hourly_rate_cents: int, effective_from: date | None = None) -> None:
+        if mode not in {"ANNUAL", "MONTHLY"}:
+            raise ValueError("補休結算方式無效。")
+        effective = effective_from or date.today()
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.transaction() as con:
+            con.execute(
+                "INSERT INTO comp_settlement_policy_history(effective_from,mode,monthly_cap_minutes,cash_hourly_rate_cents,created_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(effective_from) DO UPDATE SET mode=excluded.mode,monthly_cap_minutes=excluded.monthly_cap_minutes,cash_hourly_rate_cents=excluded.cash_hourly_rate_cents",
+                (effective.isoformat(), mode, int(monthly_cap_minutes), int(cash_hourly_rate_cents), now),
+            )
+            for key, value in (("comp_settlement_mode", mode),
+                               ("comp_monthly_cap_minutes", str(int(monthly_cap_minutes))),
+                               ("comp_cash_hourly_rate_cents", str(int(cash_hourly_rate_cents)))):
+                con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
     def deduction_priority(self) -> DeductionPriority:
         return DeductionPriority(
             self.get("leave_deduction_priority", DeductionPriority.ANNUAL_LEAVE_FIRST)
@@ -288,9 +310,13 @@ class LedgerRepository:
             entry.note,
             entry.created_at.isoformat(),
             entry.reversal_of_id,
+            entry.monthly_comp_balance,
+            entry.annual_comp_balance,
+            entry.cash_amount_cents,
+            entry.cash_hourly_rate_cents,
         )
         cur = con.execute(
-            "INSERT INTO balance_ledger(entry_date,entry_type,reason,comp_change,annual_change,comp_balance,annual_balance,source_record_id,transaction_datetime,transaction_type,ledger_origin,source_leave_type,target_leave_type,source_minutes,target_minutes,note,created_at,reversal_of_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO balance_ledger(entry_date,entry_type,reason,comp_change,annual_change,comp_balance,annual_balance,source_record_id,transaction_datetime,transaction_type,ledger_origin,source_leave_type,target_leave_type,source_minutes,target_minutes,note,created_at,reversal_of_id,monthly_comp_balance,annual_comp_balance,cash_amount_cents,cash_hourly_rate_cents) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             values,
         )
         entry.id = cur.lastrowid
@@ -312,6 +338,17 @@ class LedgerRepository:
             "SELECT comp_balance,annual_balance FROM balance_ledger ORDER BY transaction_datetime DESC,id DESC LIMIT 1"
         ).fetchone()
         return (row[0], row[1]) if row else (0, 0)
+
+    def current_comp_balances(self) -> tuple[int, int, int]:
+        row = self.db.connection.execute(
+            "SELECT monthly_comp_balance,annual_comp_balance,comp_balance FROM balance_ledger ORDER BY transaction_datetime DESC,id DESC LIMIT 1"
+        ).fetchone()
+        return tuple(row) if row else (0, 0, 0)
+
+    def monthly_comp_settlements(self):
+        return list(self.db.connection.execute(
+            "SELECT * FROM comp_monthly_settlements ORDER BY year,month"
+        ))
 
     def save_conversion(
         self, service, source_type, target_type, minutes, note="", when=None
@@ -348,6 +385,7 @@ class LedgerRepository:
         annual_cycles=(),
         comp_cycles=(),
         activation_date=None,
+        comp_policies=(),
     ):
         """Atomically replace derived events while preserving manual audit events."""
         manual = self.all(LedgerOrigin.MANUAL)
@@ -362,20 +400,37 @@ class LedgerRepository:
             annual_cycles=annual_cycles,
             comp_cycles=comp_cycles,
             activation_date=activation_date,
+            comp_policies=comp_policies,
         )
         with self.db.transaction() as con:
             con.execute(
                 "DELETE FROM balance_ledger WHERE ledger_origin=?",
                 (str(LedgerOrigin.SYSTEM),),
             )
+            con.execute("DELETE FROM comp_monthly_settlements")
             for entry in rebuilt:
                 if entry.ledger_origin == LedgerOrigin.MANUAL and entry.id:
                     con.execute(
-                        "UPDATE balance_ledger SET comp_balance=?,annual_balance=? WHERE id=?",
-                        (entry.comp_balance, entry.annual_balance, entry.id),
+                        "UPDATE balance_ledger SET comp_balance=?,annual_balance=?,monthly_comp_balance=?,annual_comp_balance=? WHERE id=?",
+                        (entry.comp_balance, entry.annual_balance, entry.monthly_comp_balance, entry.annual_comp_balance, entry.id),
                     )
                 elif entry.ledger_origin == LedgerOrigin.SYSTEM:
                     self.add(entry, con)
+            transfers = {e.entry_date: e for e in rebuilt if e.transaction_type == TransactionType.COMP_MONTHLY_TRANSFER}
+            cashes = {e.entry_date: e for e in rebuilt if e.transaction_type == TransactionType.COMP_MONTHLY_CASH_SETTLEMENT}
+            annual_dates = {e.entry_date for e in rebuilt if e.transaction_type == TransactionType.COMP_LEAVE_SETTLEMENT}
+            for day, transfer in transfers.items():
+                cash = cashes[day]
+                pre = (transfer.monthly_comp_balance + (transfer.source_minutes or 0))
+                con.execute(
+                    "INSERT INTO comp_monthly_settlements(year,month,pre_monthly_balance,annual_balance_before,monthly_cap_minutes,transfer_to_annual_minutes,cash_minutes,cash_hourly_rate_cents,cash_amount_cents,annual_balance_after,monthly_balance_after,policy_effective_from,annual_settlement_occurred) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (day.year, day.month, pre, transfer.annual_comp_balance - (transfer.source_minutes or 0),
+                     transfer.target_minutes or 0,
+                     transfer.source_minutes or 0, cash.source_minutes or 0, cash.cash_hourly_rate_cents,
+                     cash.cash_amount_cents, 0 if day in annual_dates else cash.annual_comp_balance, 0,
+                     transfer.note.rsplit("policy ", 1)[-1],
+                     int(any(d.year == day.year and d.month == day.month for d in annual_dates))),
+                )
         return rebuilt
 
     @staticmethod
@@ -390,6 +445,8 @@ class LedgerRepository:
             LeaveType(x["target_leave_type"]) if x["target_leave_type"] else None,
             x["source_minutes"], x["target_minutes"], x["note"],
             datetime.fromisoformat(x["created_at"]), x["reversal_of_id"],
+            x["monthly_comp_balance"], x["annual_comp_balance"],
+            x["cash_amount_cents"], x["cash_hourly_rate_cents"],
         )
 
 

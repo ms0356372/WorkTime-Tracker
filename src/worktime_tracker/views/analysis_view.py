@@ -68,5 +68,24 @@ class AnalysisView:
         )
         year = calculate_year_summary(rows, self.selected_year)
         comp, annual = self.ledger.current_balances()
+        monthly_comp, annual_comp, total_comp = (
+            self.ledger.current_comp_balances()
+            if hasattr(self.ledger, "current_comp_balances") else (0, comp, comp)
+        )
+        monthly_details = ""
+        if self.settings and self.settings.get("comp_settlement_mode", "ANNUAL") == "MONTHLY":
+            settlements = self.ledger.monthly_comp_settlements()
+            selected = next((row for row in settlements if row["year"] == self.selected_year and row["month"] == self.selected_month), None)
+            monthly_details = (
+                f"\n本月新增／剩餘補休\n{format_minutes(monthly_comp)}"
+                f"\n\n年度累積補休\n{format_minutes(annual_comp)}"
+                f"\n\n目前可用補休\n{format_minutes(total_comp)}"
+            )
+            if selected:
+                monthly_details += (
+                    f"\n\n本月轉入年補休\n{format_minutes(selected['transfer_to_annual_minutes'])}"
+                    f"\n\n本月超額折現時數\n{format_minutes(selected['cash_minutes'])}"
+                    f"\n\n本月折現金額\nNT${selected['cash_amount_cents'] / 100:,.0f}"
+                )
         self.heading.text = f"{self.selected_year} 年 {self.selected_month} 月"
-        self.summary.text = f"【{self.selected_year} 年 {self.selected_month} 月】\n總工時\n{format_minutes(month.work_minutes)}\n\n出勤天數\n{month.workdays} 天\n\n平均每日工時\n{format_minutes(month.average_minutes)}\n\n超時\n{format_minutes(month.overtime_minutes)}\n\n不足\n{format_minutes(month.shortfall_minutes)}\n\n假日工作\n{format_minutes(month.holiday_work_minutes)}\n\n【{self.selected_year} 年度】\n年度總工時\n{format_minutes(year.work_minutes)}\n\n年度出勤天數\n{year.workdays} 天\n\n【假別】\n補休餘額\n{format_minutes(comp)}\n\n特休餘額\n{format_minutes(annual)}"
+        self.summary.text = f"【{self.selected_year} 年 {self.selected_month} 月】\n總工時\n{format_minutes(month.work_minutes)}\n\n出勤天數\n{month.workdays} 天\n\n平均每日工時\n{format_minutes(month.average_minutes)}\n\n超時\n{format_minutes(month.overtime_minutes)}\n\n不足\n{format_minutes(month.shortfall_minutes)}\n\n假日工作\n{format_minutes(month.holiday_work_minutes)}\n\n【{self.selected_year} 年度】\n年度總工時\n{format_minutes(year.work_minutes)}\n\n年度出勤天數\n{year.workdays} 天\n\n【假別】\n補休餘額\n{format_minutes(comp)}{monthly_details}\n\n特休餘額\n{format_minutes(annual)}"

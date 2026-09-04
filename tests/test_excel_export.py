@@ -38,7 +38,7 @@ def test_excel_export_has_four_readable_sheets_and_three_rows(tmp_path):
                     if name.startswith("xl/worksheets/sheet")
                 ]
             )
-            == 4
+            == 5
         )
     assert all(
         name in workbook for name in ["每日紀錄", "統計摘要", "假別資料", "設定摘要"]

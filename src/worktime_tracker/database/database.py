@@ -1,11 +1,11 @@
 """SQLite connection and forward-only transactional migrations."""
 import sqlite3
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = 5
 
 class Database:
     def __init__(
@@ -131,6 +131,52 @@ class Database:
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('leave_deduction_priority','ANNUAL_LEAVE_FIRST')"
                 )
             self.connection.execute("PRAGMA user_version=4")
+            version = 4
+        if version < 5:
+            existing = {row[1] for row in self.connection.execute("PRAGMA table_info(balance_ledger)")}
+            for name in ("monthly_comp_balance", "annual_comp_balance", "cash_amount_cents", "cash_hourly_rate_cents"):
+                if name not in existing:
+                    self.connection.execute(
+                        f"ALTER TABLE balance_ledger ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"
+                    )
+            self.connection.executescript("""
+            CREATE TABLE IF NOT EXISTS comp_settlement_policy_history(
+                id INTEGER PRIMARY KEY,
+                effective_from TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK(mode IN ('ANNUAL','MONTHLY')),
+                monthly_cap_minutes INTEGER NOT NULL,
+                cash_hourly_rate_cents INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(effective_from)
+            );
+            CREATE TABLE IF NOT EXISTS comp_monthly_settlements(
+                id INTEGER PRIMARY KEY,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                pre_monthly_balance INTEGER NOT NULL,
+                annual_balance_before INTEGER NOT NULL,
+                monthly_cap_minutes INTEGER NOT NULL,
+                transfer_to_annual_minutes INTEGER NOT NULL,
+                cash_minutes INTEGER NOT NULL,
+                cash_hourly_rate_cents INTEGER NOT NULL,
+                cash_amount_cents INTEGER NOT NULL,
+                annual_balance_after INTEGER NOT NULL,
+                monthly_balance_after INTEGER NOT NULL,
+                policy_effective_from TEXT NOT NULL,
+                annual_settlement_occurred INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(year,month)
+            );
+            """)
+            today = self.today_provider().isoformat()
+            self.connection.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('comp_settlement_mode','ANNUAL')")
+            self.connection.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('comp_monthly_cap_minutes','2400')")
+            self.connection.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('comp_cash_hourly_rate_cents','25000')")
+            self.connection.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('comp_policy_activation_date',?)", (today,))
+            self.connection.execute(
+                "INSERT OR IGNORE INTO comp_settlement_policy_history(effective_from,mode,monthly_cap_minutes,cash_hourly_rate_cents,created_at) VALUES(?,?,?,?,?)",
+                (today, "ANNUAL", 2400, 25000, datetime.now(timezone.utc).isoformat()),
+            )
+            self.connection.execute("PRAGMA user_version=5")
         self.connection.commit()
 
     @contextmanager

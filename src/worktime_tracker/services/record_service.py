@@ -115,6 +115,7 @@ class WorkRecordService:
             "annual_cycles": cycles.annual_all(),
             "comp_cycles": cycles.comp_all(),
             "activation_date": activation_date,
+            "comp_policies": self.settings.comp_policies() if hasattr(self.settings, "comp_policies") else (),
         })
         return self.ledger.rebuild_for_records(
             self.balances,

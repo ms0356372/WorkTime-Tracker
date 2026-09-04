@@ -46,7 +46,7 @@ def export_xlsx(
     tracking_start_date=None,
     today=None,
 ):
-    """Write a four-sheet XLSX report; this file is never accepted for restore."""
+    """Write a five-sheet XLSX report; this file is never accepted for restore."""
     try:
         import xlsxwriter
     except ModuleNotFoundError:
@@ -193,6 +193,7 @@ def export_xlsx(
         4, 0, ["特休結算日", _setting(settings, "annual_leave_settlement_date", "")]
     )
     leave.write_row(5, 0, ["補休結算日", _setting(settings, "comp_leave_settlement_date", "")])
+    leave.write_row(6, 0, ["補休結算方式", _setting(settings, "comp_settlement_mode", "ANNUAL")])
     row = 7
     for entry in ledger:
         if entry.transaction_type not in {
@@ -239,6 +240,9 @@ def export_xlsx(
         ),
         ("特休結算日", _setting(settings, "annual_leave_settlement_date", "")),
         ("補休結算日", _setting(settings, "comp_leave_settlement_date", "")),
+        ("補休結算方式", _setting(settings, "comp_settlement_mode", "ANNUAL")),
+        ("每月補休累計上限", format_minutes(int(_setting(settings, "comp_monthly_cap_minutes", "2400") or 2400))),
+        ("補休折現時薪", f"NT${int(_setting(settings, 'comp_cash_hourly_rate_cents', '0') or 0) / 100:,.2f}"),
     ]
     report_today = today or date.today()
     for label, key in (("目前特休年度", "annual_leave_settlement_date"), ("目前補休年度", "comp_leave_settlement_date")):
@@ -249,5 +253,30 @@ def export_xlsx(
             config_rows.append((label, f"{cycle_start:%Y/%m/%d} ～ {cycle_end:%Y/%m/%d}"))
     for row, values in enumerate(config_rows, 1):
         config.write_row(row, 0, values)
+
+    settlements = worksheet("補休結算", [
+        "月份", "結算模式", "月底前月補休", "月底前年補休", "每月補休上限",
+        "轉入年補休", "超額折現補休", "折現時薪", "折現金額", "月底後月補休",
+        "月底後年補休", "目前總補休", "年度結算日", "是否發生年度結算",
+    ])
+    transfer_by_day = {e.entry_date: e for e in ledger if e.transaction_type == TransactionType.COMP_MONTHLY_TRANSFER}
+    cash_by_day = {e.entry_date: e for e in ledger if e.transaction_type == TransactionType.COMP_MONTHLY_CASH_SETTLEMENT}
+    annual_days = {e.entry_date for e in ledger if e.transaction_type == TransactionType.COMP_LEAVE_SETTLEMENT}
+    for row, (day, transfer) in enumerate(sorted(transfer_by_day.items()), 1):
+        cash_event = cash_by_day.get(day)
+        transfer_minutes = transfer.source_minutes or 0
+        cash_minutes = cash_event.source_minutes if cash_event else 0
+        settlements.write_row(row, 0, [
+            day.strftime("%Y-%m"), "MONTHLY", format_minutes(transfer_minutes + cash_minutes),
+            format_minutes(transfer.annual_comp_balance - transfer_minutes),
+            format_minutes(transfer.target_minutes or 0), format_minutes(transfer_minutes),
+            format_minutes(cash_minutes),
+            f"NT${(cash_event.cash_hourly_rate_cents if cash_event else 0) / 100:,.2f}",
+            f"NT${(cash_event.cash_amount_cents if cash_event else 0) / 100:,.2f}",
+            format_minutes(0), format_minutes(0 if day in annual_days else transfer.annual_comp_balance),
+            format_minutes(0 if day in annual_days else transfer.annual_comp_balance),
+            _setting(settings, "comp_leave_settlement_date", ""),
+            "是" if any(d.year == day.year and d.month == day.month for d in annual_days) else "否",
+        ])
     workbook.close()
     return Path(path)
