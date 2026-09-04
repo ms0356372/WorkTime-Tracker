@@ -30,6 +30,8 @@ class TransactionType(StrEnum):
     ANNUAL_LEAVE_GRANT = "ANNUAL_LEAVE_GRANT"
     ANNUAL_LEAVE_SETTLEMENT = "ANNUAL_LEAVE_SETTLEMENT"
     COMP_LEAVE_SETTLEMENT = "COMP_LEAVE_SETTLEMENT"
+    COMP_MONTHLY_TRANSFER = "COMP_MONTHLY_TRANSFER"
+    COMP_MONTHLY_CASH_SETTLEMENT = "COMP_MONTHLY_CASH_SETTLEMENT"
 
 class LedgerOrigin(StrEnum):
     SYSTEM = "SYSTEM"
@@ -71,6 +73,10 @@ class LedgerEntry:
     note: str = ""
     created_at: datetime | None = None
     reversal_of_id: int | None = None
+    monthly_comp_balance: int = 0
+    annual_comp_balance: int = 0
+    cash_amount_cents: int = 0
+    cash_hourly_rate_cents: int = 0
 
     def __post_init__(self) -> None:
         if self.transaction_datetime is None:
@@ -86,6 +92,10 @@ class LedgerEntry:
     def comp_time_balance_after(self) -> int: return self.comp_balance
     @property
     def annual_leave_balance_after(self) -> int: return self.annual_balance
+
+    @property
+    def total_comp_balance(self) -> int:
+        return self.comp_balance
 
 @dataclass(slots=True)
 class LeaveCycle:

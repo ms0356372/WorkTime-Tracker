@@ -29,6 +29,7 @@ SOURCE_TABLES = (
     "settings",
     "leave_cycles",
     "comp_leave_cycles",
+    "comp_settlement_policy_history",
     "monthly_settlements",
     "app_metadata",
     "calendar_overrides",
@@ -51,6 +52,7 @@ TABLE_COLUMNS = {
     "settings": {"key", "value", "effective_date"},
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
     "comp_leave_cycles": {"id", "start_date", "end_date"},
+    "comp_settlement_policy_history": {"id", "effective_from", "mode", "monthly_cap_minutes", "cash_hourly_rate_cents", "created_at"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
     "calendar_overrides": {"id", "work_date", "day_type", "note", "created_at", "updated_at"},
@@ -61,6 +63,7 @@ REQUIRED_COLUMNS = {
     "settings": {"key", "value"},
     "leave_cycles": {"id", "start_date", "end_date", "total_minutes"},
     "comp_leave_cycles": {"id", "start_date", "end_date"},
+    "comp_settlement_policy_history": {"id", "effective_from", "mode", "monthly_cap_minutes", "cash_hourly_rate_cents", "created_at"},
     "monthly_settlements": {"id", "year", "month", "minutes", "rule"},
     "app_metadata": {"key", "value"},
     "calendar_overrides": {"id", "work_date", "day_type"},
@@ -86,6 +89,10 @@ LEDGER_COLUMNS = {
     "note",
     "created_at",
     "reversal_of_id",
+    "monthly_comp_balance",
+    "annual_comp_balance",
+    "cash_amount_cents",
+    "cash_hourly_rate_cents",
 }
 
 
@@ -170,7 +177,7 @@ def inspect_backup(path):
         raise BackupValidationError("備份紀錄數量與 manifest 不一致。")
     backup_version = manifest["backup_format_version"]
     for table, allowed in TABLE_COLUMNS.items():
-        if table == "comp_leave_cycles" and table not in tables:
+        if table in {"comp_leave_cycles", "comp_settlement_policy_history"} and table not in tables:
             continue
         if backup_version == 1 and table in {"calendar_overrides", "official_holidays"}:
             continue
@@ -250,6 +257,10 @@ def _ledger(row):
         row.get("note", ""),
         datetime.fromisoformat(row["created_at"]),
         row.get("reversal_of_id"),
+        int(row.get("monthly_comp_balance", 0)),
+        int(row.get("annual_comp_balance", row.get("comp_balance", 0))),
+        int(row.get("cash_amount_cents", 0)),
+        int(row.get("cash_hourly_rate_cents", 0)),
     )
 
 
@@ -265,6 +276,9 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
     settings.setdefault("annual_leave_settlement_date", annual_settlement)
     settings.setdefault("comp_leave_settlement_date", annual_settlement)
     settings.setdefault("settlement_engine_activation_date", date.today().isoformat())
+    settings.setdefault("comp_settlement_mode", "ANNUAL")
+    settings.setdefault("comp_monthly_cap_minutes", "2400")
+    settings.setdefault("comp_cash_hourly_rate_cents", "25000")
     records = [_record(row) for row in tables["work_records"]]
     manual = [_ledger(row) for row in data["manual_ledger_events"]]
     priority = DeductionPriority(
@@ -272,13 +286,19 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
     )
     with db.transaction() as con:
         con.execute("DELETE FROM balance_ledger")
+        con.execute("DELETE FROM comp_monthly_settlements")
         for table in reversed(SOURCE_TABLES):
             con.execute(f"DELETE FROM {table}")
         if fault_injector:
             fault_injector()
         for table in SOURCE_TABLES:
             _insert_rows(con, table, tables.get(table, []))
-        for key in ("annual_leave_settlement_date", "comp_leave_settlement_date", "settlement_engine_activation_date"):
+        if not tables.get("comp_settlement_policy_history"):
+            con.execute(
+                "INSERT INTO comp_settlement_policy_history(effective_from,mode,monthly_cap_minutes,cash_hourly_rate_cents,created_at) VALUES(?,?,?,?,?)",
+                (date.today().isoformat(), "ANNUAL", 2400, 25000, datetime.now(timezone.utc).isoformat()),
+            )
+        for key in ("annual_leave_settlement_date", "comp_leave_settlement_date", "settlement_engine_activation_date", "comp_settlement_mode", "comp_monthly_cap_minutes", "comp_cash_hourly_rate_cents"):
             con.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (key, settings[key])
             )
@@ -314,12 +334,13 @@ def restore_backup(db, path, safety_directory=None, fault_injector=None):
             annual_cycles=con.execute("SELECT * FROM leave_cycles ORDER BY start_date").fetchall(),
             comp_cycles=con.execute("SELECT * FROM comp_leave_cycles ORDER BY start_date").fetchall(),
             activation_date=date.fromisoformat(settings["settlement_engine_activation_date"]),
+            comp_policies=con.execute("SELECT * FROM comp_settlement_policy_history ORDER BY effective_from,id").fetchall(),
         )
         for entry in rebuilt:
             if entry.ledger_origin == LedgerOrigin.MANUAL:
                 con.execute(
-                    "UPDATE balance_ledger SET comp_balance=?,annual_balance=? WHERE id=?",
-                    (entry.comp_balance, entry.annual_balance, entry.id),
+                    "UPDATE balance_ledger SET comp_balance=?,annual_balance=?,monthly_comp_balance=?,annual_comp_balance=? WHERE id=?",
+                    (entry.comp_balance, entry.annual_balance, entry.monthly_comp_balance, entry.annual_comp_balance, entry.id),
                 )
             else:
                 ledger_repository.add(entry, con)

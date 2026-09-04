@@ -61,6 +61,22 @@ class SettingsView:
         self.settlement = toga.DateInput(value=date.fromisoformat(settlement))
         comp_settlement = self.settings.get("comp_leave_settlement_date", settlement)
         self.comp_settlement = toga.DateInput(value=date.fromisoformat(comp_settlement))
+        mode = self.settings.get("comp_settlement_mode", "ANNUAL")
+        self.comp_mode = toga.Selection(
+            items=["年結算", "每月結算"],
+            value="每月結算" if mode == "MONTHLY" else "年結算",
+            on_change=self.change_comp_mode,
+        )
+        self.comp_monthly_cap = toga.NumberInput(
+            min=0, step=1,
+            value=int(self.settings.get("comp_monthly_cap_minutes", "2400") or 2400) / 60,
+        )
+        self.comp_cash_rate = toga.NumberInput(
+            min=0, step=1,
+            value=int(self.settings.get("comp_cash_hourly_rate_cents", "25000") or 25000) / 100,
+        )
+        self.comp_mode_help = toga.Label("")
+        self.comp_settlement_history = toga.Label("")
         self.leave_year_summary = toga.Label("")
         self.comp_year_summary = toga.Label("")
         self.annual_summary = toga.Label("")
@@ -108,13 +124,22 @@ class SettingsView:
             toga.Button("儲存年度特休設定", on_press=self.save_annual_leave),
             self.annual_summary,
             toga.Label("補休設定"),
-            toga.Label("補休結算日"),
+            toga.Label("補休結算方式"),
+            self.comp_mode,
+            self.comp_mode_help,
+            toga.Label("年度補休結算日"),
             self.comp_settlement,
+            toga.Label("每月補休累計上限（小時）"),
+            self.comp_monthly_cap,
+            toga.Label("補休折現時薪（NT$/小時）"),
+            self.comp_cash_rate,
             toga.Label("補休年度計算期間為：補休結算日隔天至下一年度結算日當天。"),
             toga.Label("若結算日為 12/31，則 2026/1/1～2026/12/31 為同一補休年度。"),
             self.comp_year_summary,
             toga.Button("儲存補休設定", on_press=self.save_comp_leave),
             self.balances,
+            toga.Label("補休月結紀錄"),
+            self.comp_settlement_history,
             toga.Label("午休設定"),
             toga.Label("午休開始時間"),
             self.lunch_start,
@@ -213,6 +238,10 @@ class SettingsView:
         )
 
     async def save_comp_leave(self, widget):
+        mode = "MONTHLY" if self.comp_mode.value == "每月結算" else "ANNUAL"
+        cap = int(self.comp_monthly_cap.value or 0) * 60
+        rate_cents = int(self.comp_cash_rate.value or 0) * 100
+        self.settings.set_comp_policy(mode, cap, rate_cents)
         self.settings.set(
             "comp_leave_settlement_date", self.comp_settlement.value.isoformat()
         )
@@ -222,6 +251,32 @@ class SettingsView:
         self._notify()
         await self.app.main_window.dialog(
             toga.InfoDialog("設定已儲存", "補休結算日已更新。")
+        )
+
+    async def change_comp_mode(self, widget):
+        self._refresh_comp_mode()
+
+    def _refresh_comp_settlement_history(self):
+        if hasattr(self.ledger, "monthly_comp_settlements"):
+            rows = self.ledger.monthly_comp_settlements()
+            self.comp_settlement_history.text = "\n\n".join(
+                f"{row['year']}/{row['month']:02d}\n月補休：{format_minutes(row['pre_monthly_balance'])}\n"
+                f"轉入年補休：{format_minutes(row['transfer_to_annual_minutes'])}\n"
+                f"超額折現：{format_minutes(row['cash_minutes'])}（NT${row['cash_amount_cents'] / 100:,.0f}）\n"
+                f"年補休結算後：{format_minutes(row['annual_balance_after'])}"
+                for row in reversed(rows)
+            ) or "尚無月結紀錄"
+
+    def _refresh_comp_mode(self):
+        monthly = self.comp_mode.value == "每月結算"
+        if hasattr(self.comp_monthly_cap, "enabled"):
+            self.comp_monthly_cap.enabled = monthly
+            self.comp_cash_rate.enabled = monthly
+        self.comp_mode_help.text = (
+            "每月新產生的補休先累積於月補休；使用時先扣月補休，再扣年補休。\n"
+            "月底上限內轉入年補休、超額折現；年度補休結算日後全部歸零。"
+            if monthly else
+            "補休持續累積至年度補休結算日，結算後剩餘補休歸 0。"
         )
 
     async def save_lunch_break(self, widget):
@@ -267,6 +322,8 @@ class SettingsView:
                 self.ledger.save_conversion(
                     self.conversions, source, target, minutes, self.note.value
                 )
+                if self.records:
+                    WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
                 self.refresh()
                 self._notify()
                 await self.app.main_window.dialog(
@@ -342,11 +399,26 @@ class SettingsView:
         if not hasattr(self, "balances"):
             return
         comp, annual = self.ledger.current_balances()
+        monthly_comp, annual_comp, _ = (
+            self.ledger.current_comp_balances()
+            if hasattr(self.ledger, "current_comp_balances") else (0, comp, comp)
+        )
         total = int(self.settings.get("annual_leave_total_minutes", "0") or 0)
         used = max(total - annual, 0)
-        self.balances.text = (
-            f"目前補休\n{format_minutes(comp)}\n\n目前特休\n{format_minutes(annual)}"
-        )
+        if self.settings.get("comp_settlement_mode", "ANNUAL") == "MONTHLY":
+            cap = int(self.settings.get("comp_monthly_cap_minutes", "2400") or 2400)
+            rate = int(self.settings.get("comp_cash_hourly_rate_cents", "0") or 0)
+            excess = max(monthly_comp - cap, 0)
+            cash = (excess * rate + 30) // 60
+            self.balances.text = (
+                f"本月補休：{format_minutes(monthly_comp)}\n年度補休：{format_minutes(annual_comp)}\n"
+                f"目前可用補休：{format_minutes(comp)}\n本月目前預估超額：{format_minutes(excess)}\n"
+                f"本月目前預估折現：NT${cash / 100:,.0f}\n\n目前特休：{format_minutes(annual)}"
+            )
+        else:
+            self.balances.text = f"目前補休\n{format_minutes(comp)}\n\n目前特休\n{format_minutes(annual)}"
+        self._refresh_comp_mode()
+        self._refresh_comp_settlement_history()
         self.annual_summary.text = f"年度特休：{format_minutes(total)}\n已使用：{format_minutes(used)}\n剩餘：{format_minutes(annual)}"
         self.history.items = self._history_items()
         configured = self.settings.get("annual_leave_settlement_date")
@@ -422,6 +494,8 @@ class SettingsView:
             return
         try:
             self.ledger.save_reversal(self.conversions, original)
+            if self.records:
+                WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
             self.refresh()
             self._notify()
             await self.app.main_window.dialog(

@@ -59,7 +59,14 @@ class DashboardView:
             "today"
         ].text = f"今天工時\n{format_minutes(calculate_work_minutes(today_record) if today_record else 0)}"
         self.labels["month"].text = f"本月工時\n{format_minutes(month.work_minutes)}"
-        self.labels["comp"].text = f"目前補休\n{format_minutes(comp)}"
+        if self.settings and self.settings.get("comp_settlement_mode", "ANNUAL") == "MONTHLY":
+            monthly, annual_comp, total = self.ledger.current_comp_balances()
+            self.labels["comp"].text = (
+                f"目前可用補休\n{format_minutes(total)}\n"
+                f"本月：{format_minutes(monthly)}｜年度：{format_minutes(annual_comp)}"
+            )
+        else:
+            self.labels["comp"].text = f"目前補休\n{format_minutes(comp)}"
         self.labels["annual"].text = f"剩餘特休\n{format_minutes(annual)}"
 
     async def export_excel(self, widget):
