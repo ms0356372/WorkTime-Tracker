@@ -57,6 +57,13 @@ export class DexieSettingsRepository implements SettingsRepository {
   async set(setting: Setting): Promise<void> {
     await this.database.settings.put(setting)
   }
+
+  async setLunchBreak(start: string, end: string): Promise<void> {
+    await this.database.transaction('rw', this.database.settings, async () => {
+      await this.set({ key: 'lunch_break_start', value: start })
+      await this.set({ key: 'lunch_break_end', value: end })
+    })
+  }
 }
 
 export class DexieLedgerRepository implements LedgerRepository {
@@ -76,6 +83,10 @@ export class DexieSpecialDateRepository implements SpecialDateRepository {
 
   all(): Promise<CalendarOverride[]> {
     return this.database.calendarOverrides.orderBy('workDate').toArray()
+  }
+
+  get(date: string): Promise<CalendarOverride | undefined> {
+    return this.database.calendarOverrides.where('workDate').equals(date).first()
   }
 
   async save(value: CalendarOverride): Promise<number> {
@@ -98,5 +109,19 @@ export class DexieHolidayRepository implements HolidayRepository {
 
   forYear(year: number): Promise<OfficialHoliday[]> {
     return this.database.officialHolidays.where('year').equals(year).toArray()
+  }
+
+  get(date: string): Promise<OfficialHoliday | undefined> {
+    return this.database.officialHolidays.get(date)
+  }
+
+  async replaceYear(year: number, values: OfficialHoliday[]): Promise<void> {
+    if (values.some((value) => value.year !== year || !value.holidayDate.startsWith(`${year}-`))) {
+      throw new Error('Holiday data does not match the selected year.')
+    }
+    await this.database.transaction('rw', this.database.officialHolidays, async () => {
+      await this.database.officialHolidays.where('year').equals(year).delete()
+      await this.database.officialHolidays.bulkPut(values)
+    })
   }
 }
