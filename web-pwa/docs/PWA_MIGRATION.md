@@ -1,4 +1,4 @@
-# WorkTime Tracker PWA Migration（0.1.0 Foundation）
+# WorkTime Tracker PWA Migration（Phase 2：Core WorkRecord）
 
 > 分析基準：Python/Android `0.8.5` source、tests 與本任務實機截圖。PWA 採整數分鐘、offline-first；本文件的 **DONE 僅表示本階段確實完成的 foundation**，不把靜態畫面誤稱為功能完成。
 
@@ -29,7 +29,8 @@
 | Excel | `.xlsx`，每日紀錄、統計摘要、假別資料、設定摘要、補休結算共五 sheet；支援 all/leave-year | IMPLEMENTED |
 | Backup/restore | transaction-safe restore、還原前安全備份、checksum、schema/format validation、重建 system ledger | IMPLEMENTED |
 | 疲累指數 | service/test 尚存在，但最新 UI/需求不以此為核心；PWA 刻意不移植 | NOT IMPLEMENTED（by design） |
-| PWA CRUD / ledger / export / restore | 本階段僅架構、模型、畫面與計畫 | NOT IMPLEMENTED |
+| PWA WorkRecord CRUD | Dexie persistence、同日 upsert、recent/month query、React UI refresh | IMPLEMENTED
+| PWA ledger / export / restore | 保留既有 interface，尚未移植 Business Logic | NOT IMPLEMENTED |
 
 ## 2. Ledger、結算與分析細節
 
@@ -46,20 +47,20 @@
 | SQLite schema v5 | `db/database.ts` Dexie schema v1 | IN PROGRESS | stores/indexes 已規劃；資料 migration 尚未實作 |
 | `WorkRecord`, enums | `models/domain.ts` | DONE | ISO local date/time + integer minutes |
 | `LedgerEntry`, cycles | `models/domain.ts` | DONE | model skeleton 完整保留 audit fields |
-| WorkRecordRepository | contract + `DexieWorkRecordRepository` | IN PROGRESS | upsert/query/delete 已有；尚未接 UI/ledger transaction |
+| WorkRecordRepository | contract + `DexieWorkRecordRepository` | DONE | IndexedDB CRUD、同日 unique upsert、ID/date edit、month range、recent |
 | SettingsRepository | contract + Dexie adapter | IN PROGRESS | basic key/value；typed helpers 待移植 |
 | LedgerRepository | contract + Dexie adapter | IN PROGRESS | append/read skeleton；重建 engine 未移植 |
 | Calendar/holiday repositories | contracts + Dexie adapters | IN PROGRESS | local persistence skeleton |
-| Worktime calculator | `services/workTimeService.ts` | IN PROGRESS | basic/overnight/lunch overlap 已移植與測試 |
+| Worktime calculator | `services/workTimeService.ts` | DONE | integer minutes、validation、overnight、lunch overlap、overtime/shortfall |
 | AnalyticsService | `services/analysisService.ts` | PARTIAL | basic records summary；calendar missing-day/cycle balances 待移植 |
 | Balance/settlement service | future services | NOT STARTED | 下一階段依 Python tests parity 移植 |
 | LeaveConversionService | future service | NOT STARTED | 必須保留 append-only reversal |
 | BackupService | future backup feature | NOT STARTED | mapping 已列於下節 |
 | ExcelExportService | future export feature | NOT STARTED | 五 sheet parity；依賴評估後再選 library |
 | WorkCalendarService | future service | NOT STARTED | CORS/Service Worker 可行性先 spike |
-| DashboardView | `HomePage.tsx` | IN PROGRESS | responsive skeleton；無真實資料 |
-| RecordsView | `RecordsPage.tsx` | IN PROGRESS | form skeleton；CRUD disabled |
-| MonthlyRecordsView | `CalendarPage.tsx` | IN PROGRESS | 正確跨年月份切換；list/CRUD 待接 |
+| DashboardView | `HomePage.tsx` | DONE | IndexedDB 今日與本月真實工時；Ledger 餘額明確留待後續 |
+| RecordsView | `RecordsPage.tsx` | DONE | create/upsert/edit/delete、結果與最近七筆、mutation refresh |
+| MonthlyRecordsView | `CalendarPage.tsx` | DONE | IndexedDB 月份列表與正確跨年月份切換 |
 | AnalysisView | `AnalysisPage.tsx` | IN PROGRESS | metric skeleton；不可視為完成分析 |
 | SettingsView | `SettingsPage.tsx` | IN PROGRESS | 8 個 mobile cards；controls/services 待接 |
 
@@ -92,7 +93,7 @@ PWA 自有 JSON/ZIP backup 將包含 `formatName`、`backupFormatVersion`、`dat
 
 ## 6. Feature checklist
 
-### DONE（0.1.0）
+### DONE（Foundation + Phase 2）
 
 - [x] 獨立 React + TypeScript + Vite + Vitest 子專案
 - [x] PWA manifest、generated service worker、app-shell precache configuration
@@ -103,7 +104,9 @@ PWA 自有 JSON/ZIP backup 將包含 `formatName`、`backupFormatVersion`、`dat
 
 ### IN PROGRESS
 
-- [ ] WorkRecord repository edge cases、transaction/use-case、React CRUD wiring
+- [x] WorkRecord repository edge cases、transaction/upsert、React CRUD wiring
+- [x] 今日/本月 dashboard 與月份紀錄讀取 IndexedDB
+- [x] 午休 overlap、overnight、overtime/shortfall integer-minute calculation
 - [ ] Typed settings、analysis 與 calendar service parity
 - [ ] Production icon/splash/install UX 與跨瀏覽器 install QA
 
