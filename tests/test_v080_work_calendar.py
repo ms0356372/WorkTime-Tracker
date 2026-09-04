@@ -122,9 +122,12 @@ def test_official_dataset_metadata_resolves_csv_without_live_network(tmp_path):
 
 
 def test_tracking_start_migration_defaults_to_today_without_history_replay(tmp_path):
-    db = Database(tmp_path / "migration.db")
-    settings = SettingsRepository(db)
     chosen_today = date(2026, 9, 3)
+    db = Database(
+        tmp_path / "migration.db",
+        today_provider=lambda: chosen_today,
+    )
+    settings = SettingsRepository(db)
     assert settings.tracking_start_date(chosen_today) == chosen_today
     assert settings.get("work_tracking_start_date") == "2026-09-03"
     service = WorkCalendarService(CalendarOverrideRepository(db), OfficialHolidayRepository(db), settings)
