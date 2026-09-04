@@ -3,12 +3,18 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+from typing import Callable
 
 LATEST_SCHEMA_VERSION = 3
 
 class Database:
-    def __init__(self, path: str | Path):
+    def __init__(
+        self,
+        path: str | Path,
+        today_provider: Callable[[], date] | None = None,
+    ):
         self.path = str(path)
+        self.today_provider = today_provider or date.today
         self.connection = sqlite3.connect(self.path)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys=ON")
@@ -74,7 +80,7 @@ class Database:
             """)
             self.connection.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('work_tracking_start_date',?)",
-                (date.today().isoformat(),),
+                (self.today_provider().isoformat(),),
             )
         self.connection.commit()
 
