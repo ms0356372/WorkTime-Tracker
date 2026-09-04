@@ -117,9 +117,9 @@ def test_gradle_fallback_checks_java_before_running(monkeypatch):
 
 def test_debug_build_artifact_naming():
     module = load_build_mobile()
-    assert module.artifact_name("debug") == "工時管家-0.8.2-debug.apk"
-    assert module.artifact_name("release") == "工時管家-0.8.2-release-unsigned.apk"
-    assert module.artifact_name("release", signed=True) == "工時管家-0.8.2-release.apk"
+    assert module.artifact_name("debug") == "工時管家-0.8.3-debug.apk"
+    assert module.artifact_name("release") == "工時管家-0.8.3-release-unsigned.apk"
+    assert module.artifact_name("release", signed=True) == "工時管家-0.8.3-release.apk"
 
 
 def test_option_container_material_dependency_is_persistent():

@@ -167,7 +167,8 @@ def test_deleting_yesterdays_record_creates_missing_event(tmp_path):
     event = ledger.all()[0]
     assert event.transaction_type == TransactionType.MISSING_WORKDAY_DEDUCTION
     assert event.source_record_id is None
-    assert event.annual_change == -480
+    assert event.annual_change == 0
+    assert event.comp_change == -480
 
 
 def test_month_analysis_includes_missing_shortfall_not_attendance(tmp_path):

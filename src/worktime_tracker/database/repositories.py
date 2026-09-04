@@ -171,7 +171,7 @@ class SettingsRepository:
 
     def deduction_priority(self) -> DeductionPriority:
         return DeductionPriority(
-            self.get("leave_deduction_priority", DeductionPriority.COMP_TIME_FIRST)
+            self.get("leave_deduction_priority", DeductionPriority.ANNUAL_LEAVE_FIRST)
         )
 
     def lunch_break(self) -> tuple[str, str]:
@@ -345,6 +345,9 @@ class LedgerRepository:
         calendar=None,
         tracking_start_date=None,
         today=None,
+        annual_cycles=(),
+        comp_cycles=(),
+        activation_date=None,
     ):
         """Atomically replace derived events while preserving manual audit events."""
         manual = self.all(LedgerOrigin.MANUAL)
@@ -356,6 +359,9 @@ class LedgerRepository:
             calendar=calendar,
             tracking_start_date=tracking_start_date,
             today=today,
+            annual_cycles=annual_cycles,
+            comp_cycles=comp_cycles,
+            activation_date=activation_date,
         )
         with self.db.transaction() as con:
             con.execute(
@@ -375,23 +381,57 @@ class LedgerRepository:
     @staticmethod
     def _map(x):
         return LedgerEntry(
-            date.fromisoformat(x["entry_date"]),
-            x["entry_type"],
-            x["reason"],
-            x["comp_change"],
-            x["annual_change"],
-            x["comp_balance"],
-            x["annual_balance"],
-            x["source_record_id"],
-            x["id"],
+            date.fromisoformat(x["entry_date"]), x["entry_type"], x["reason"],
+            x["comp_change"], x["annual_change"], x["comp_balance"],
+            x["annual_balance"], x["source_record_id"], x["id"],
             datetime.fromisoformat(x["transaction_datetime"]),
-            TransactionType(x["transaction_type"]),
-            LedgerOrigin(x["ledger_origin"]),
+            TransactionType(x["transaction_type"]), LedgerOrigin(x["ledger_origin"]),
             LeaveType(x["source_leave_type"]) if x["source_leave_type"] else None,
             LeaveType(x["target_leave_type"]) if x["target_leave_type"] else None,
-            x["source_minutes"],
-            x["target_minutes"],
-            x["note"],
-            datetime.fromisoformat(x["created_at"]),
-            x["reversal_of_id"],
+            x["source_minutes"], x["target_minutes"], x["note"],
+            datetime.fromisoformat(x["created_at"]), x["reversal_of_id"],
         )
+
+
+class LeaveCycleRepository:
+    """Immutable cycle boundaries and per-annual-cycle entitlement source data."""
+
+    def __init__(self, db):
+        self.db = db
+
+    def annual_all(self):
+        return list(self.db.connection.execute(
+            "SELECT * FROM leave_cycles ORDER BY start_date"
+        ))
+
+    def comp_all(self):
+        return list(self.db.connection.execute(
+            "SELECT * FROM comp_leave_cycles ORDER BY start_date"
+        ))
+
+    def ensure_annual(self, start: date, end: date, default_minutes: int) -> None:
+        with self.db.transaction() as con:
+            previous = con.execute(
+                "SELECT total_minutes FROM leave_cycles WHERE end_date<? ORDER BY end_date DESC LIMIT 1",
+                (start.isoformat(),),
+            ).fetchone()
+            inherited = previous[0] if previous else default_minutes
+            con.execute(
+                "INSERT OR IGNORE INTO leave_cycles(start_date,end_date,total_minutes) VALUES(?,?,?)",
+                (start.isoformat(), end.isoformat(), inherited),
+            )
+
+    def set_annual(self, start: date, end: date, minutes: int) -> None:
+        with self.db.transaction() as con:
+            con.execute(
+                "INSERT INTO leave_cycles(start_date,end_date,total_minutes) VALUES(?,?,?) "
+                "ON CONFLICT(start_date,end_date) DO UPDATE SET total_minutes=excluded.total_minutes",
+                (start.isoformat(), end.isoformat(), minutes),
+            )
+
+    def ensure_comp(self, start: date, end: date) -> None:
+        with self.db.transaction() as con:
+            con.execute(
+                "INSERT OR IGNORE INTO comp_leave_cycles(start_date,end_date) VALUES(?,?)",
+                (start.isoformat(), end.isoformat()),
+            )

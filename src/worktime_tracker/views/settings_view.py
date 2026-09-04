@@ -20,7 +20,7 @@ from worktime_tracker.services.backup_service import (
 )
 from worktime_tracker.services.android_file_service import BACKUP_MIME, file_service_for
 from worktime_tracker.utils.formatting import format_minutes
-from worktime_tracker.utils.leave_year import get_current_leave_year_range
+from worktime_tracker.utils.leave_year import get_current_cycle_range
 
 
 class SettingsView:
@@ -59,7 +59,10 @@ class SettingsView:
         self.annual_hours = toga.NumberInput(min=0, step=1, value=total // 60)
         self.daily_hours = toga.NumberInput(min=1, step=1, value=daily_standard // 60)
         self.settlement = toga.DateInput(value=date.fromisoformat(settlement))
+        comp_settlement = self.settings.get("comp_leave_settlement_date", settlement)
+        self.comp_settlement = toga.DateInput(value=date.fromisoformat(comp_settlement))
         self.leave_year_summary = toga.Label("")
+        self.comp_year_summary = toga.Label("")
         self.annual_summary = toga.Label("")
         lunch_start, lunch_end = self.settings.lunch_break()
         self.lunch_start = toga.TimeInput(
@@ -95,7 +98,7 @@ class SettingsView:
             toga.Label("工時不足扣除順序"),
             self.priority,
             toga.Label("年度特休"),
-            toga.Label("今年特休總時數（小時）"),
+            toga.Label("本年度特休核給時數（小時）"),
             self.annual_hours,
             toga.Label("特休結算日"),
             self.settlement,
@@ -104,6 +107,13 @@ class SettingsView:
             self.leave_year_summary,
             toga.Button("儲存年度特休設定", on_press=self.save_annual_leave),
             self.annual_summary,
+            toga.Label("補休設定"),
+            toga.Label("補休結算日"),
+            self.comp_settlement,
+            toga.Label("補休年度計算期間為：補休結算日隔天至下一年度結算日當天。"),
+            toga.Label("若結算日為 12/31，則 2026/1/1～2026/12/31 為同一補休年度。"),
+            self.comp_year_summary,
+            toga.Button("儲存補休設定", on_press=self.save_comp_leave),
             self.balances,
             toga.Label("午休設定"),
             toga.Label("午休開始時間"),
@@ -189,11 +199,29 @@ class SettingsView:
             "annual_leave_settlement_date", self.settlement.value.isoformat()
         )
         if self.records:
+            from worktime_tracker.database.repositories import LeaveCycleRepository
+            start, end = get_current_cycle_range(
+                date.today(), self.settlement.value.month, self.settlement.value.day
+            )
+            LeaveCycleRepository(self.records.db).set_annual(start, end, total)
+        if self.records:
             WorkRecordService(self.records, self.ledger, self.settings).rebuild_ledger()
         self.refresh()
         self._notify()
         await self.app.main_window.dialog(
             toga.InfoDialog("設定已儲存", "年度特休與結算日已更新。")
+        )
+
+    async def save_comp_leave(self, widget):
+        self.settings.set(
+            "comp_leave_settlement_date", self.comp_settlement.value.isoformat()
+        )
+        if self.records:
+            WorkRecordService(self.records, self.ledger, self.settings, self.calendar).rebuild_ledger()
+        self.refresh()
+        self._notify()
+        await self.app.main_window.dialog(
+            toga.InfoDialog("設定已儲存", "補休結算日已更新。")
         )
 
     async def save_lunch_break(self, widget):
@@ -325,7 +353,7 @@ class SettingsView:
         if configured:
             settlement = date.fromisoformat(configured)
             self.settlement.value = settlement
-            start, end = get_current_leave_year_range(
+            start, end = get_current_cycle_range(
                 date.today(), settlement.month, settlement.day
             )
             self.leave_year_summary.text = (
@@ -333,6 +361,15 @@ class SettingsView:
             )
         else:
             self.leave_year_summary.text = "目前年度：尚未設定特休結算日"
+        comp_configured = self.settings.get("comp_leave_settlement_date", configured)
+        if comp_configured:
+            comp_date = date.fromisoformat(comp_configured)
+            self.comp_settlement.value = comp_date
+            start, end = get_current_cycle_range(date.today(), comp_date.month, comp_date.day)
+            self.comp_year_summary.text = (
+                f"目前補休年度：{start:%Y/%m/%d} ～ {end:%Y/%m/%d}\n"
+                f"目前補休餘額：{format_minutes(comp)}"
+            )
         if self.calendar:
             visible_years = set(holiday_sync_years(date.today()))
             statuses = [

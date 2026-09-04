@@ -118,6 +118,9 @@ class LeaveBalanceService:
         calendar=None,
         tracking_start_date: date | None = None,
         today: date | None = None,
+        annual_cycles=(),
+        comp_cycles=(),
+        activation_date: date | None = None,
     ) -> list[LedgerEntry]:
         """Rebuild system events, retain manual audit events, then replay chronologically."""
         records = list(records)
@@ -144,6 +147,36 @@ class LeaveBalanceService:
             )
         record_by_date = {r.work_date: r for r in records}
         effective_today = today or date.today()
+        activation = activation_date or effective_today
+        for cycle in annual_cycles:
+            start = date.fromisoformat(cycle["start_date"])
+            end = date.fromisoformat(cycle["end_date"])
+            total = int(cycle["total_minutes"])
+            if activation <= start <= effective_today:
+                events.append(LedgerEntry(
+                    start, "特休年度核給", f"{start:%Y/%m/%d}～{end:%Y/%m/%d}",
+                    annual_change=total,
+                    transaction_datetime=datetime.combine(start, time.min),
+                    transaction_type=TransactionType.ANNUAL_LEAVE_GRANT,
+                    ledger_origin=LedgerOrigin.SYSTEM,
+                ))
+            if activation <= end <= effective_today:
+                events.append(LedgerEntry(
+                    end, "特休年度結算", f"結算 {start:%Y/%m/%d}～{end:%Y/%m/%d}",
+                    transaction_datetime=datetime.combine(end, time(23, 59, 59)),
+                    transaction_type=TransactionType.ANNUAL_LEAVE_SETTLEMENT,
+                    ledger_origin=LedgerOrigin.SYSTEM,
+                ))
+        for cycle in comp_cycles:
+            start = date.fromisoformat(cycle["start_date"])
+            end = date.fromisoformat(cycle["end_date"])
+            if activation <= end <= effective_today:
+                events.append(LedgerEntry(
+                    end, "補休年度結算", f"結算 {start:%Y/%m/%d}～{end:%Y/%m/%d}",
+                    transaction_datetime=datetime.combine(end, time(23, 59, 59)),
+                    transaction_type=TransactionType.COMP_LEAVE_SETTLEMENT,
+                    ledger_origin=LedgerOrigin.SYSTEM,
+                ))
         for record in records:
             if calendar and record.work_date > effective_today:
                 continue
@@ -189,7 +222,11 @@ class LeaveBalanceService:
                     comp += settlement.comp_change
                     rebuilt.append(settlement)
             current_month = month
-            if event.transaction_type in {
+            if event.transaction_type == TransactionType.ANNUAL_LEAVE_SETTLEMENT:
+                event.annual_change = -annual
+            elif event.transaction_type == TransactionType.COMP_LEAVE_SETTLEMENT:
+                event.comp_change = -comp
+            elif event.transaction_type in {
                 TransactionType.WORKTIME_DEDUCTION,
                 TransactionType.MISSING_WORKDAY_DEDUCTION,
             }:

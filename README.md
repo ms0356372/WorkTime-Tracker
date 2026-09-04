@@ -1,8 +1,8 @@
 # 工時管家（WorkTime Tracker）
 
-工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.2`。
+工時管家是以 **BeeWare Toga + SQLite** 製作的繁體中文、單人手機工時管理 App。所有時數在核心與資料庫均以整數分鐘運算；不登入、不蒐集資料，只有更新官方國定假日快取時使用網路。本版版本為 `0.8.3`。
 
-v0.8.2 在 Android 使用系統原生 HTTPS trust store 同步前一年度與目前年度，並使用政府資料集的資源描述與格式選取年度 CSV；內建 2026／2027 官方行事曆 fallback，今天及未來日期不會預扣。
+v0.8.3 在 Android 使用系統原生 HTTPS trust store 同步前一年度與目前年度，並使用政府資料集的資源描述與格式選取年度 CSV；內建 2026／2027 官方行事曆 fallback，今天及未來日期不會預扣。
 
 ## 功能與架構
 
@@ -69,10 +69,14 @@ python generate_demo_data.py
 
 打包前可在專案虛擬環境執行 `python build_mobile.py doctor`。診斷會列出實際 Python、Briefcase 版本、Java、Android SDK 環境變數、Briefcase 設定、既有 scaffold 與 release 目錄。未設定 `JAVA_HOME` 或 `ANDROID_HOME` 只會提示，不會直接判定失敗，因為 Briefcase 可以準備隔離的 Android 工具；若使用系統 JDK，應安裝 Java 17。
 
-`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.2-release.apk` 或 `工時管家-0.8.2-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
+`python build_mobile.py android` 採 incremental build：找不到 Android Gradle scaffold 時才執行一次 `briefcase create android`，後續改用 `briefcase update android`。需要刻意刪除 Android scaffold/cache 並重建時，使用 `python build_mobile.py android --clean`。APK 一律透過 `briefcase package android -p apk` 產生，再遞迴尋找新 APK，複製為 `release/android/工時管家-0.8.3-release.apk` 或 `工時管家-0.8.3-debug.apk`；即時輸出也會保存於 `release/build_android.log`。
 
 Windows 雙擊 `build_android.bat` 只會執行檢查與 Debug APK 建置，不會呼叫 ADB、安裝 APK 或清除手機資料。
 
 ### `BackendUnavailable` 修復
 
 若舊版專案曾顯示 `Cannot import 'briefcase.integrations.setuptools'`，新版已改用標準 `setuptools.build_meta` editable-install backend。Android BAT 會先升級 `pip`、`setuptools`、`wheel`，再安裝 Briefcase，最後才執行 `pip install -e ".[dev]"`。既有 `.venv` 可直接再次執行 `build_android.bat` 進行修復；若該環境曾中途損壞，可刪除 `.venv` 後重新雙擊 BAT。
+
+## v0.8.3 年度假別結算
+
+特休與補休可分別設定結算日；結算日當天交易完成後，SYSTEM Ledger 將餘額（包含負值）結算為零。特休在隔日依該年度 `leave_cycles` 保存的核給額度重新核給，補休則由零開始。升級使用者以 v0.8.3 啟用日為界，不追溯結算舊年度；新使用者的工時不足預設採特休優先。
