@@ -1,9 +1,12 @@
 import { holidayRepository, settingsRepository, specialDateRepository } from '../repositories'
 import { CalendarService } from './calendarService'
+import { loadPackagedHolidayYear } from './holidayService'
 
 export const DEFAULT_DAILY_MINUTES = 480
 export async function loadCalendar(years:number[]):Promise<CalendarService>{
-  const [overrides, holidayGroups]=await Promise.all([specialDateRepository.all(),Promise.all([...new Set(years)].map((year)=>holidayRepository.forYear(year)))])
+  const unique=[...new Set(years)]
+  await Promise.all(unique.map(async year=>{try{await loadPackagedHolidayYear(year,holidayRepository)}catch{/* Preserve and use an existing cache on load failure. */}}))
+  const [overrides, holidayGroups]=await Promise.all([specialDateRepository.all(),Promise.all(unique.map((year)=>holidayRepository.forYear(year)))])
   return new CalendarService(overrides,holidayGroups.flat())
 }
 export async function loadAnalysisSettings(today:string){

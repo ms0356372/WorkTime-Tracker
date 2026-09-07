@@ -8,6 +8,8 @@ import type {
   WorkRecordRepository,
 } from './contracts'
 import { nextMonth } from '../utils/date'
+import { normalizeOverride } from '../services/specialDateService'
+import { validateHolidayYear } from '../services/holidayService'
 
 export class DexieWorkRecordRepository implements WorkRecordRepository {
   constructor(private database: WorkTimeDatabase) {}
@@ -85,12 +87,12 @@ export class DexieLedgerRepository implements LedgerRepository {
 export class DexieSpecialDateRepository implements SpecialDateRepository {
   constructor(private database: WorkTimeDatabase) {}
 
-  all(): Promise<CalendarOverride[]> {
-    return this.database.calendarOverrides.orderBy('workDate').toArray()
+  async all(): Promise<CalendarOverride[]> {
+    return (await this.database.calendarOverrides.orderBy('workDate').toArray()).map(normalizeOverride)
   }
 
-  get(date: string): Promise<CalendarOverride | undefined> {
-    return this.database.calendarOverrides.where('workDate').equals(date).first()
+  async get(date: string): Promise<CalendarOverride | undefined> {
+    const value=await this.database.calendarOverrides.where('workDate').equals(date).first();return value?normalizeOverride(value):undefined
   }
 
   async save(value: CalendarOverride): Promise<number> {
@@ -98,7 +100,7 @@ export class DexieSpecialDateRepository implements SpecialDateRepository {
       .where('workDate')
       .equals(value.workDate)
       .first()
-    const savedValue = found ? { ...value, id: found.id } : value
+    const normalized=normalizeOverride(value),savedValue = found ? { ...normalized, id: found.id } : normalized
 
     return this.database.calendarOverrides.put(savedValue)
   }
@@ -123,9 +125,7 @@ export class DexieHolidayRepository implements HolidayRepository {
   }
 
   async replaceYear(year: number, values: OfficialHoliday[]): Promise<void> {
-    if (values.some((value) => value.year !== year || !value.holidayDate.startsWith(`${year}-`))) {
-      throw new Error('Holiday data does not match the selected year.')
-    }
+    validateHolidayYear(year,values)
     await this.database.transaction('rw', this.database.officialHolidays, async () => {
       await this.database.officialHolidays.where('year').equals(year).delete()
       await this.database.officialHolidays.bulkPut(values)

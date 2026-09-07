@@ -77,4 +77,18 @@ No deferred ledger, leave, export, or backup item was reclassified as a regressi
 
 ## Verification and scope
 
-`verify_pwa.bat` still checks Node/npm, dependencies, tests, production build, and `dist/index.html`; it was not modified. Required npm verification was attempted, but dependencies were absent and registry access returned HTTP 403, so test/build execution is environment-blocked. The final Git scope audit must contain only `web-pwa/**`. Android/Python files were not modified.
+`verify_pwa.bat` still checks Node/npm, dependencies, tests, production build, and `dist/index.html`; it was not modified. Phase 4 verification completed with 43 passing Vitest tests, a zero-error TypeScript/Vite production build, generated manifest/service worker/assets, and a responding production preview. The final Git scope audit contains only `web-pwa/**`; Android/Python files were not modified.
+
+## Phase 4 closure (2026-09-07)
+
+Phase 4 closes the visible-foundation gaps: Home now obtains today's record by its local ISO date directly from IndexedDB and separately calculates the current-month summary. Work-record saves and confirmed deletes pass through one mutation use-case and emit one refresh event; Records and Calendar share its confirmation-aware deletion path. Leave and ledger values remain **INTENTIONALLY DEFERRED** and no zero balance is presented.
+
+Special-date presentation now offers **公司補班日**, **公司假日**, and **特殊非工作日**, mapped respectively to `WORKDAY`, `NON_WORKDAY`, and `NON_WORKDAY`. Dexie schema v2 adds the display category and migrates legacy rows conservatively (`WORKDAY` → company makeup day; `NON_WORKDAY` → special non-workday). The business priority remains special override > official holiday > weekday.
+
+Packaged DGPA-derived 2026 and 2027 JSON is precached by the PWA, validated atomically, and loaded into IndexedDB on first annual use. Settings reports each relevant year's loaded status and last successful update. A failed package update leaves the previous annual cache untouched. Advanced validated JSON import remains available. Calendar/analysis reuse cached data rather than fetching on every calculation.
+
+Delete confirmations include the record date. User-readable load/save/delete failures, visible focus outlines, semantic form labels/status messages, 44 px controls, wrapping record actions, narrow-screen one-column forms/status, non-compressing month navigation, and existing bottom safe-area padding establish the Phase 4 accessibility/responsive baseline.
+
+**SOURCE MISMATCH:** current Python Settings exposes the technical two-way choice “上班日 / 非上班日”, while this Phase explicitly requires three user-facing categories. The PWA therefore keeps the Python `WORKDAY` / `NON_WORKDAY` core and adds only non-destructive presentation metadata as required by this Phase.
+
+**SCREENSHOT QA NOT AVAILABLE:** no current Android screenshot was supplied in this task payload or found in the repository. Automated production preview was checked, but Android visual comparison cannot honestly be claimed.

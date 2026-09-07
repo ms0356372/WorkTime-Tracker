@@ -53,6 +53,7 @@ const ledgerEntry = (): LedgerEntry => ({
 const calendarOverride = (): CalendarOverride => ({
   workDate: '2026-09-04',
   dayType: 'NON_WORKDAY',
+  category: 'SPECIAL_NON_WORKDAY',
   note: 'special date',
   createdAt: '2026-09-04T09:00:00',
   updatedAt: '2026-09-04T09:00:00',
