@@ -109,3 +109,11 @@ There is no source/test mismatch for uncovered deficits: current `LeaveBalanceSe
 Replay generates month transfer at 23:58:00, cash settlement at 23:58:30, and annual settlement at 23:59:59. Ledger and monthly settlement replacement share one Dexie transaction, while manual rows and WorkRecords remain untouched. Existing schema v2 already contained all stores and indexes, so Phase 6 requires no database version increase or destructive migration.
 
 **INTENTIONALLY DEFERRED (Phase 7):** Comp ↔ Annual conversion, conversion form/history, and reversal. **INTENTIONALLY DEFERRED (Phase 8+):** Backup/Restore and Android import, Excel export, Supabase, and cloud sync.
+
+## Phase 7 closure (2026-09-07)
+
+Phase 7 **LEAVE CONVERSION = DONE / MATCH**, **REVERSAL = DONE / MATCH**, and **MANUAL AUDIT = DONE / MATCH**. The PWA now performs offline Comp ↔ Annual conversion at a fixed 1:1 ratio using integer minutes, validates authoritative replayed balances, and persists complete MANUAL ledger metadata with a stable generated ID. Conversion and reversal append one audit row, run the full deterministic replay (including monthly buckets and settlements), update only derived snapshots on all existing MANUAL rows, and emit one shared Ledger refresh after success.
+
+Reversal is append-only: it creates an exact inverse `REVERSAL`, swaps source/target metadata, and links the immutable original by `reversalOfId`. The repository atomically rejects duplicate reversal links, while the use-case also serializes mutations and validates current Comp/Annual affordability. Settings shows current balances, validated hour/minute input, newest-first conversion/reversal history, active/reversed status, details and confirmation. No edit or delete action exists.
+
+Dexie remains schema v2 because the ledger already indexed `reversalOfId` and contained every Phase 7 field; existing Phase 6 stores and every MANUAL ledger event are preserved in place. **Phase 8 Backup/Restore and Android import remain INTENTIONALLY DEFERRED. Phase 9 Excel export remains INTENTIONALLY DEFERRED.** Cloud, login and sync also remain deferred.

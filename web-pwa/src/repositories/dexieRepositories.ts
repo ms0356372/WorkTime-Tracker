@@ -84,8 +84,15 @@ export class DexieLedgerRepository implements LedgerRepository {
   add(entry: LedgerEntry): Promise<number> {
     return this.database.ledger.add(entry)
   }
+  getById(id:number):Promise<LedgerEntry|undefined>{return this.database.ledger.get(id)}
   getSystem():Promise<LedgerEntry[]>{return this.database.ledger.where('ledgerOrigin').equals('SYSTEM').sortBy('transactionDatetime')}
   getManual():Promise<LedgerEntry[]>{return this.database.ledger.where('ledgerOrigin').equals('MANUAL').sortBy('transactionDatetime')}
+  async conversionEntries(){return (await this.getManual()).filter(e=>e.transactionType==='LEAVE_CONVERSION'||e.transactionType==='REVERSAL').sort((a,b)=>b.transactionDatetime.localeCompare(a.transactionDatetime)||(b.id??0)-(a.id??0))}
+  findReversalFor(id:number):Promise<LedgerEntry|undefined>{return this.database.ledger.where('reversalOfId').equals(id).filter(e=>e.transactionType==='REVERSAL').first()}
+  async isReversed(id:number){return Boolean(await this.findReversalFor(id))}
+  appendManual(entry:LedgerEntry):Promise<number>{if(entry.ledgerOrigin!=='MANUAL')return Promise.reject(new Error('ONLY_MANUAL_LEDGER_CAN_BE_APPENDED'));return this.database.ledger.add(entry)}
+  appendReversal(entry:LedgerEntry):Promise<number>{return this.database.transaction('rw',this.database.ledger,async()=>{if(entry.transactionType!=='REVERSAL'||entry.ledgerOrigin!=='MANUAL'||entry.reversalOfId===undefined)throw new Error('INVALID_REVERSAL');if(await this.findReversalFor(entry.reversalOfId))throw new Error('ALREADY_REVERSED');return this.database.ledger.add(entry)})}
+  async deleteManual(id:number){const entry=await this.database.ledger.get(id);if(entry?.ledgerOrigin==='MANUAL')await this.database.ledger.delete(id)}
   async replaceSystem(entries:LedgerEntry[]):Promise<void>{
     await this.database.transaction('rw',this.database.ledger,async()=>{
       await this.database.ledger.where('ledgerOrigin').equals('SYSTEM').delete()
