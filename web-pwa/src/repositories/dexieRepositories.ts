@@ -1,7 +1,8 @@
 import type { WorkTimeDatabase } from '../db/database'
-import type { CalendarOverride, LedgerEntry, OfficialHoliday, Setting, WorkRecord } from '../models/domain'
+import type { CalendarOverride, CompMonthlySettlement, CompSettlementPolicy, LedgerEntry, LeaveCycle, OfficialHoliday, Setting, WorkRecord } from '../models/domain'
 import type {
   HolidayRepository,
+  CompCycleRepository, CompMonthlySettlementRepository, CompPolicyRepository,
   LedgerRepository,
   SettingsRepository,
   SpecialDateRepository,
@@ -95,8 +96,40 @@ export class DexieLedgerRepository implements LedgerRepository {
       }
     })
   }
+  async replaceDerived(entries:LedgerEntry[],settlements:CompMonthlySettlement[]):Promise<void>{
+    await this.database.transaction('rw',this.database.ledger,this.database.compMonthlySettlements,async()=>{
+      await this.database.ledger.where('ledgerOrigin').equals('SYSTEM').delete()
+      const manual=new Map((await this.database.ledger.where('ledgerOrigin').equals('MANUAL').toArray()).map(x=>[x.id,x]))
+      for(const entry of entries){
+        if(entry.ledgerOrigin==='MANUAL'&&entry.id&&manual.has(entry.id))await this.database.ledger.update(entry.id,{compBalance:entry.compBalance,annualBalance:entry.annualBalance,monthlyCompBalance:entry.monthlyCompBalance,annualCompBalance:entry.annualCompBalance})
+        else if(entry.ledgerOrigin==='SYSTEM')await this.database.ledger.add({...entry,id:undefined})
+      }
+      await this.database.compMonthlySettlements.clear();if(settlements.length)await this.database.compMonthlySettlements.bulkAdd(settlements)
+    })
+  }
   async currentBalances(){const last=(await this.all()).at(-1);return {compBalanceMinutes:last?.compBalance??0,annualBalanceMinutes:last?.annualBalance??0}}
+  async currentCompBalances(){const last=(await this.all()).at(-1);return {monthly:last?.monthlyCompBalance??0,annual:last?.annualCompBalance??0,total:(last?.monthlyCompBalance??0)+(last?.annualCompBalance??0)}}
   entriesForRange(start:string,end:string):Promise<LedgerEntry[]>{return this.database.ledger.where('entryDate').between(start,end,true,true).sortBy('transactionDatetime')}
+}
+
+export class DexieCompPolicyRepository implements CompPolicyRepository{
+  constructor(private database:WorkTimeDatabase){}
+  async history(){return this.database.compPolicies.orderBy('effectiveFrom').toArray()}
+  async current(){return (await this.history()).at(-1)}
+  async policyOn(date:string){return (await this.history()).filter(x=>x.effectiveFrom<=date).at(-1)}
+  async save(policy:CompSettlementPolicy){const old=await this.database.compPolicies.where('effectiveFrom').equals(policy.effectiveFrom).first();return this.database.compPolicies.put(old?{...policy,id:old.id}:policy)}
+}
+export class DexieCompCycleRepository implements CompCycleRepository{
+  constructor(private database:WorkTimeDatabase){}
+  all(){return this.database.compLeaveCycles.orderBy('startDate').toArray()}
+  async upsert(cycle:LeaveCycle){const old=await this.database.compLeaveCycles.where('[startDate+endDate]').equals([cycle.startDate,cycle.endDate]).first();return this.database.compLeaveCycles.put(old?{...cycle,id:old.id}:cycle)}
+}
+export class DexieCompMonthlySettlementRepository implements CompMonthlySettlementRepository{
+  constructor(private database:WorkTimeDatabase){}
+  async all(){return (await this.database.compMonthlySettlements.toArray()).sort((a,b)=>b.year-a.year||b.month-a.month)}
+  async forYear(year:number){return (await this.all()).filter(x=>x.year===year)}
+  forMonth(year:number,month:number){return this.database.compMonthlySettlements.where('[year+month]').equals([year,month]).first()}
+  async replaceDerived(values:CompMonthlySettlement[]){await this.database.transaction('rw',this.database.compMonthlySettlements,async()=>{await this.database.compMonthlySettlements.clear();if(values.length)await this.database.compMonthlySettlements.bulkAdd(values)})}
 }
 
 export class DexieSpecialDateRepository implements SpecialDateRepository {
