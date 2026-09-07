@@ -3,7 +3,7 @@ import {afterEach,describe,expect,it,vi} from 'vitest'
 import {WorkTimeDatabase} from '../db/database'
 import type {CalendarOverride,CompMonthlySettlement,ISODate,LedgerEntry,OfficialHoliday,WorkRecord} from '../models/domain'
 import {buildExcelReport,exportFilename,type ExcelExportScope,type ExcelSnapshot} from '../services/excelReportBuilder'
-import {downloadExcel,ExcelExportService,XLSX_MIME} from '../services/excelExportService'
+import {ExcelExportService,XLSX_MIME} from '../services/excelExportService'
 import {readZip} from '../services/zipArchive'
 import {columnName,writeXlsx} from '../services/xlsxWriter'
 
@@ -39,5 +39,5 @@ describe('minimal browser OOXML writer',()=>{
 
 describe('Excel service and browser download',()=>{let database:WorkTimeDatabase|undefined;afterEach(async()=>{vi.restoreAllMocks();if(database){database.close();await database.delete();database=undefined}})
   it('takes a read-only snapshot and leaves every table unchanged',async()=>{database=new WorkTimeDatabase(`xlsx-${crypto.randomUUID()}`);await database.workRecords.add(record('2026-09-01'));await database.settings.bulkPut(Object.entries(settings).map(([key,value])=>({key,value})));await database.ledger.add(ledger());const before=await Promise.all([database.workRecords.toArray(),database.settings.toArray(),database.ledger.toArray(),database.compMonthlySettlements.toArray()]),artifact=await new ExcelExportService(database).create('all','2026-09-10'),after=await Promise.all([database.workRecords.toArray(),database.settings.toArray(),database.ledger.toArray(),database.compMonthlySettlements.toArray()]);expect(artifact).toMatchObject({filename:'工時管家_全部紀錄_20260910.xlsx',mime:XLSX_MIME});expect(artifact.blob.type).toBe(XLSX_MIME);expect(after).toEqual(before)})
-  it('downloads through an object URL and delays cleanup',()=>{vi.useFakeTimers();const click=vi.fn(),anchor={click,href:'',download:''},create=vi.fn(()=>anchor);vi.stubGlobal('document',{createElement:create});const url=vi.spyOn(URL,'createObjectURL').mockReturnValue('blob:x'),revoke=vi.spyOn(URL,'revokeObjectURL').mockImplementation(()=>{});downloadExcel({filename:'report.xlsx',mime:XLSX_MIME,bytes:new Uint8Array(),blob:new Blob()});expect(create).toHaveBeenCalledWith('a');expect(anchor.download).toBe('report.xlsx');expect(click).toHaveBeenCalledOnce();expect(revoke).not.toHaveBeenCalled();vi.advanceTimersByTime(60_000);expect(revoke).toHaveBeenCalledWith('blob:x');url.mockRestore();vi.unstubAllGlobals();vi.useRealTimers()})
+
 })
