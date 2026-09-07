@@ -12,6 +12,6 @@ export default defineConfig({
       start_url: '/', lang: 'zh-Hant', orientation: 'portrait-primary',
       icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
     },
-    workbox: { navigateFallback: 'index.html', globPatterns: ['**/*.{js,css,html,svg}'] },
+    workbox: { navigateFallback: 'index.html', globPatterns: ['**/*.{js,css,html,svg,json}'] },
   })],
 })

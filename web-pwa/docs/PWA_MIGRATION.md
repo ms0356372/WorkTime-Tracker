@@ -1,6 +1,6 @@
-# WorkTime Tracker PWA Migration（Phase 3）
+# WorkTime Tracker PWA Migration（Phase 4）
 
-## Phase 3 implementation status
+## Phase 4 implementation status
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -8,9 +8,9 @@
 | Lunch range | IMPLEMENTED | `lunch_break_start` / `lunch_break_end`; new record flows consume these values and overlap calculation remains minute based. |
 | Calculation start | IMPLEMENTED | `work_tracking_start_date`; required/missing analysis excludes earlier dates. An absent setting initializes to the local current date, matching Python migration safety. |
 | Calendar priority | IMPLEMENTED | Special override > official holiday > Monday–Friday/weekend. |
-| Special dates | IMPLEMENTED | IndexedDB upsert by unique date, list and delete UI. |
-| Official holiday repository/cache | IMPLEMENTED | Query/get and atomic replace-year import persist offline in IndexedDB. |
-| Official holiday network sync | PARTIAL | Browser network/CORS sync is intentionally not claimed; Settings offers explicit JSON annual import/update and keeps the last successful cache. |
+| Special dates | IMPLEMENTED | Three user-facing categories map to the two technical day types; IndexedDB v2 migrates legacy overrides and preserves same-date upsert. |
+| Official holiday repository/cache | IMPLEMENTED | Validated packaged 2026/2027 JSON loads once into IndexedDB; query/get and atomic replace-year preserve offline data. |
+| Official holiday update/status | IMPLEMENTED | Settings reloads packaged annual data, shows loaded years/last success, supports validated JSON import, and preserves cache on failure. Live government-network sync remains deferred. |
 | Calendar month classification | IMPLEMENTED | Each date shows work/non-work classification, source label/note, and recorded minutes. |
 | Monthly analysis | IMPLEMENTED | Month navigation, total/attendance/rounded average/overtime/shortfall/holiday work/scheduled/missing counts. Future/today dates are not missing. |
 | Ledger, leave deduction and leave balances | NOT IMPLEMENTED | Analysis does not deduct comp or annual leave and the dashboard hides fabricated balances. |
@@ -63,7 +63,7 @@ Missing-workday safety follows Python: a normal weekday is only marked missing w
 | Python component | PWA component | Migration status | Notes |
 |---|---|---|---|
 | SQLite schema v5 | `db/database.ts` Dexie schema v1 | IN PROGRESS | stores/indexes 已規劃；資料 migration 尚未實作 |
-| `WorkRecord`, enums | `models/domain.ts` | DONE | ISO local date/time + integer minutes |
+| `WorkRecord`, enums | `models/domain.ts` | DONE | ISO local date/time + integer minutes; special-date display category is distinct from day type |
 | `LedgerEntry`, cycles | `models/domain.ts` | DONE | model skeleton 完整保留 audit fields |
 | WorkRecordRepository | contract + `DexieWorkRecordRepository` | IMPLEMENTED | upsert/query/delete 與 basic UI 已接；ledger transaction 尚未實作 |
 | SettingsRepository | contract + Dexie adapter | IMPLEMENTED | standard minutes、lunch 與 tracking start 已接 UI |
@@ -76,11 +76,11 @@ Missing-workday safety follows Python: a normal weekday is only marked missing w
 | BackupService | future backup feature | NOT STARTED | mapping 已列於下節 |
 | ExcelExportService | future export feature | NOT STARTED | 五 sheet parity；依賴評估後再選 library |
 | WorkCalendarService | `services/calendarService.ts` | IMPLEMENTED | priority and local-date classification; network sync remains PARTIAL |
-| DashboardView | `HomePage.tsx` | IMPLEMENTED | IndexedDB-backed Phase 3 month metrics |
-| RecordsView | `RecordsPage.tsx` | IMPLEMENTED | IndexedDB upsert/recent/delete with settings snapshots |
-| MonthlyRecordsView | `CalendarPage.tsx` | IMPLEMENTED | month navigation and per-date calendar/record classification |
+| DashboardView | `HomePage.tsx` | IMPLEMENTED | Persisted local-today record plus independent current-month metrics; no fabricated leave balances |
+| RecordsView | `RecordsPage.tsx` | IMPLEMENTED | Shared mutation use-case, edit/recent/today, and date-specific delete confirmation |
+| MonthlyRecordsView | `CalendarPage.tsx` | IMPLEMENTED | Month record cards with times/work/edit and shared confirmed deletion |
 | AnalysisView | `AnalysisPage.tsx` | IMPLEMENTED | Phase 3 monthly metrics backed by repositories/services |
-| SettingsView | `SettingsPage.tsx` | IMPLEMENTED | Phase 3 settings, overrides and holiday import |
+| SettingsView | `SettingsPage.tsx` | IMPLEMENTED | Natural override categories plus packaged holiday update/status/import |
 
 ## 4. Android backup → PWA mapping plan
 
@@ -150,3 +150,10 @@ PWA 自有 JSON/ZIP backup 將包含 `formatName`、`backupFormatVersion`、`dat
 ## 8. Foundation acceptance notes
 
 `npm run dev` 提供 Vite development server；service worker 的完整離線行為應以 production `npm run build && npm run preview` 驗證。Skeleton 中尚未可用的 action 明確 disabled 或標示「尚未實作」，不製造假資料、不宣稱 DONE。
+
+
+## Phase 4 acceptance note
+
+The record mutation boundary owns repository save/delete, one refresh event, and deletion confirmation; it intentionally contains no Phase 5 ledger rebuild. Dexie v2 upgrades legacy overrides in place without clearing IndexedDB. Packaged holiday writes validate ISO calendar dates, matching year, unique dates, and nonblank names before an atomic annual replacement. The service worker precaches packaged JSON. Accessibility and 360/390/768/desktop responsive rules were reviewed programmatically. Ledger, comp/annual leave deduction and settlement, conversion/reversal, Backup/Restore, Excel, Supabase, login, and cloud sync remain **INTENTIONALLY DEFERRED**.
+
+**SCREENSHOT QA NOT AVAILABLE:** this task supplied no Android screenshots, so no visual screenshot-parity claim is made.
