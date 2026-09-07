@@ -55,3 +55,8 @@ button:active:not(:disabled){background:#064f48;transform:translateY(1px)}
   .row-actions{width:100%;min-width:0}
   .row-actions button{flex:1 1 0;min-width:0}
 }
+
+.prepared-file{min-width:0;max-width:100%;margin-top:14px;padding:14px;border:1px solid #c8d8d4;border-radius:12px}
+.prepared-file p{overflow-wrap:anywhere}
+.prepared-file>p:first-child{margin-top:0}
+.prepared-file>p>strong{display:inline;font-size:inherit;margin:0}

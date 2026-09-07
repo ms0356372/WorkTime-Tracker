@@ -18,5 +18,3 @@ export class ExcelExportService{
   }
   async create(scope:ExcelExportScope,today=localISODate()):Promise<ExcelArtifact>{const report=buildExcelReport(await this.snapshot(),scope,today),bytes=writeXlsx(report.sheets),blob=new Blob([bytes.buffer as ArrayBuffer],{type:XLSX_MIME});return {filename:report.filename,mime:XLSX_MIME,bytes,blob}}
 }
-
-export function downloadExcel(artifact:ExcelArtifact){const url=URL.createObjectURL(artifact.blob),anchor=document.createElement('a');anchor.href=url;anchor.download=artifact.filename;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),60_000)}
