@@ -178,3 +178,11 @@ Only completed months in the current comp cycle receive deterministic 23:58 tran
 Home uses one authoritative current-comp summary and conditionally displays the MONTHLY split. Analysis looks up settlement by the selected year/month. Settings includes mode/date, conditional retained cap/rate inputs, current cycle and split balances, and newest-first monthly history. Ledger SYSTEM events and derived settlements are committed atomically; repeated rebuilds replace rather than append results, while MANUAL rows are preserved.
 
 Phase 7 conversion/reversal and all later portability, export, and cloud features remain **INTENTIONALLY DEFERRED**.
+
+## Phase 7 closure (2026-09-07)
+
+Phase 7 is **DONE / MATCH** for **LEAVE CONVERSION**, **REVERSAL**, and **MANUAL AUDIT**. `LeaveConversionService` parity is implemented as application-level pure candidate builders plus serialized persistence/replay use-cases. Both directions use exact integer-minute 1:1 deltas. Current authoritative total Comp (monthly + annual buckets) or Annual balance is checked before append; reversal checks `max(original.compChange, 0)` and `max(original.annualChange, 0)`.
+
+Conversions and reversals are MANUAL events ordered by local transaction datetime and stable ID. Full replay retains their IDs and immutable payload while recalculating total/monthly/annual snapshots and Phase 6 derived settlements. Reversal never edits or deletes its original; the typed repository performs an atomic duplicate-link check and append. Settings provides the conversion form, immediate balance refresh, complete newest-first audit history, active/reversed status, and confirmation-gated reversal. Dexie remains v2 with no migration or data clearing.
+
+**INTENTIONALLY DEFERRED:** Phase 8 Backup/Restore and Android `.worktimebackup` import; Phase 9 Excel export; later Supabase, login and cloud sync.
