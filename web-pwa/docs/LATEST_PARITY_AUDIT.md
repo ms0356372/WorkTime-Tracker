@@ -117,3 +117,14 @@ Phase 7 **LEAVE CONVERSION = DONE / MATCH**, **REVERSAL = DONE / MATCH**, and **
 Reversal is append-only: it creates an exact inverse `REVERSAL`, swaps source/target metadata, and links the immutable original by `reversalOfId`. The repository atomically rejects duplicate reversal links, while the use-case also serializes mutations and validates current Comp/Annual affordability. Settings shows current balances, validated hour/minute input, newest-first conversion/reversal history, active/reversed status, details and confirmation. No edit or delete action exists.
 
 Dexie remains schema v2 because the ledger already indexed `reversalOfId` and contained every Phase 7 field; existing Phase 6 stores and every MANUAL ledger event are preserved in place. **Phase 8 Backup/Restore and Android import remain INTENTIONALLY DEFERRED. Phase 9 Excel export remains INTENTIONALLY DEFERRED.** Cloud, login and sync also remain deferred.
+
+## Phase 8 portability parity
+
+- FULL BACKUP = **DONE / MATCH**
+- SAFE RESTORE = **DONE / MATCH**
+- ANDROID V1 IMPORT = **DONE / MATCH**
+- ANDROID V2 IMPORT = **DONE / MATCH**
+- PRE-RESTORE SAFETY BACKUP = **DONE / MATCH**
+- MANUAL conversion/reversal identity and Unicode source data are preserved; SYSTEM ledger and Phase 6 settlements are rebuilt deterministically.
+- Android legacy `monthly_settlements` are preserved losslessly in a schema-v3 compatibility store, separate from PWA derived `compMonthlySettlements`.
+- Excel / XLSX Export (Phase 9) = **INTENTIONALLY DEFERRED**.

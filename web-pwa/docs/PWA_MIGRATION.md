@@ -186,3 +186,34 @@ Phase 7 is **DONE / MATCH** for **LEAVE CONVERSION**, **REVERSAL**, and **MANUAL
 Conversions and reversals are MANUAL events ordered by local transaction datetime and stable ID. Full replay retains their IDs and immutable payload while recalculating total/monthly/annual snapshots and Phase 6 derived settlements. Reversal never edits or deletes its original; the typed repository performs an atomic duplicate-link check and append. Settings provides the conversion form, immediate balance refresh, complete newest-first audit history, active/reversed status, and confirmation-gated reversal. Dexie remains v2 with no migration or data clearing.
 
 **INTENTIONALLY DEFERRED:** Phase 8 Backup/Restore and Android `.worktimebackup` import; Phase 9 Excel export; later Supabase, login and cloud sync.
+
+## Phase 8 — Full backup / safe restore (DONE)
+
+- `WorkTimeTrackerBackup` v2 `.worktimebackup` ZIP exports contain UTF-8 `manifest.json` and `data.json`; SHA-256 covers the exact serialized `data.json` bytes.
+- A strict, inspect-first Android v1/v2 importer validates manifest, checksum, row columns, dates/times/enums/integers, duplicate work dates/IDs, and conversion reversal links before IndexedDB writes.
+- Restore is replacement, not merge. A verified pre-restore backup is downloaded first, explicit confirmation is required, and all source/derived stores are committed in one Dexie transaction.
+- Only MANUAL ledger payloads are portable sources. SYSTEM ledger and Phase 6 monthly results are deterministically replayed; work-record IDs, MANUAL IDs, and `reversalOfId` survive.
+- PWA calendar categories live in the optional top-level `pwa_extensions.calendar_override_categories`; Android table rows remain strict. Legacy Android `monthly_settlements` use a dedicated compatibility store and never become Phase 6 derived settlements.
+- Resource limits: archive 100 MB, `data.json` 50 MB, and 250,000 total rows.
+
+### ANDROID BACKUP COMPATIBILITY
+
+| Direction | Status | Notes |
+|---|---|---|
+| Android Backup v1 → PWA | **SUPPORTED** | Missing calendar/holiday tables become empty; tracking/settlement activation defaults use restore-local today. |
+| Android Backup v2 → PWA | **SUPPORTED** | Strict Android snake_case source tables and MANUAL ledger are mapped and replayed. |
+| PWA Backup v2 → PWA | **SUPPORTED** | Includes lossless PWA category extension and legacy compatibility rows. |
+| PWA Backup v2 → Android | **PARTIAL (static compatibility)** | Core rows match Android v2; Android runtime roundtrip was not executed and acceptance of the optional top-level PWA extension depends on its current parser. |
+
+### Phase 8 manual browser QA
+
+1. Create several work records (including a Traditional Chinese note).
+2. Create a conversion and reversal, then select MONTHLY comp settlement.
+3. Download a full backup.
+4. Add or modify records/settings.
+5. Select the original backup, review the inspection preview, download the safety backup, and confirm restore.
+6. Confirm all data and balances returned to the backup state.
+7. Press F5 and confirm the restored state remains.
+8. Repeat backup and restore while offline.
+
+Phase 9 Excel / XLSX export remains **INTENTIONALLY DEFERRED**. Login, Supabase, cloud sync, remote backup, and upload are also out of scope.
