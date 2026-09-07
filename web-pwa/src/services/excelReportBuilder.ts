@@ -1,0 +1,57 @@
+import type {CalendarOverride,CompMonthlySettlement,ISODate,LedgerEntry,OfficialHoliday,WorkRecord} from '../models/domain'
+import {summarizeMonth} from './analysisService'
+import {CalendarService,localISODate} from './calendarService'
+import {getCurrentLeaveCycle,parseSettlement} from './leaveYearService'
+import {calculateWorkMinutes} from './workTimeService'
+import {formatMinutes} from '../utils/time'
+import type {XlsxCell,XlsxSheet} from './xlsxWriter'
+
+export type ExcelExportScope='all'|'leave_year'
+export interface ExcelSnapshot{records:WorkRecord[];ledger:LedgerEntry[];settings:Record<string,string>;overrides:CalendarOverride[];holidays:OfficialHoliday[];settlements:CompMonthlySettlement[]}
+export interface DailyReportRow{date:string;dayType:string;status:string;clockIn:string;clockOut:string;lunch:string;actual:string;standard:string;overtime:string;shortfall:string;note:string}
+export interface SummaryRow{item:string;value:XlsxCell;attendance:XlsxCell;overtime:XlsxCell;shortfall:XlsxCell}
+export interface LeaveReportRow{date:string;type:string;source:string;target:string;minutes:XlsxCell;note:string}
+export interface ConfigReportRow{item:string;value:string}
+export interface CompSettlementReportRow{month:string;mode:string;preMonthly:string;annualBefore:string;cap:string;transfer:string;cashMinutes:string;rate:string;amount:string;monthlyAfter:string;annualAfter:string;total:string;annualDate:string;annualOccurred:string}
+export interface ExcelReport{scope:ExcelExportScope;startDate?:ISODate;endDate?:ISODate;filename:string;daily:DailyReportRow[];summary:SummaryRow[];leave:LeaveReportRow[];config:ConfigReportRow[];settlements:CompSettlementReportRow[];sheets:XlsxSheet[]}
+
+const displayDate=(value:string)=>value.replaceAll('-','/')
+const addDays=(value:ISODate,days:number):ISODate=>{const [y,m,d]=value.split('-').map(Number),date=new Date(Date.UTC(y,m-1,d+days));return `${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,'0')}-${String(date.getUTCDate()).padStart(2,'0')}` as ISODate}
+const datesBetween=(start:ISODate,end:ISODate)=>{const result:ISODate[]=[];for(let day=start;day<=end;day=addDays(day,1))result.push(day);return result}
+const money=(cents:number)=>`NT$${(cents/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+const dayLabel=(calendar:CalendarService,date:ISODate)=>{const reason=calendar.getWorkdayReason(date);if(reason.source==='SPECIAL_OVERRIDE')return reason.isWorkday?'公司補班':'公司假日';if(reason.source==='OFFICIAL_HOLIDAY')return '國定假日';return reason.isWorkday?'正常工作日':'週末'}
+const validISODate=(value:string)=>{const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);if(!match)return false;const date=new Date(Date.UTC(Number(match[1]),Number(match[2])-1,Number(match[3])));return date.getUTCFullYear()===Number(match[1])&&date.getUTCMonth()+1===Number(match[2])&&date.getUTCDate()===Number(match[3])}
+export function exportFilename(scope:ExcelExportScope,today:ISODate,start?:ISODate,end?:ISODate){return scope==='leave_year'?`工時管家_年度_${start!.replaceAll('-','')}-${end!.replaceAll('-','')}.xlsx`:`工時管家_全部紀錄_${today.replaceAll('-','')}.xlsx`}
+function rawMinutes(record:WorkRecord){return calculateWorkMinutes({...record,deductBreak:false})}
+
+export function buildExcelReport(snapshot:ExcelSnapshot,scope:ExcelExportScope,today:ISODate=localISODate()):ExcelReport{
+  const settings=snapshot.settings,standardDefault=Number(settings.daily_standard_minutes||480),calendar=new CalendarService(snapshot.overrides,snapshot.holidays)
+  let startDate:ISODate|undefined,endDate:ISODate|undefined
+  if(scope==='leave_year'){
+    const configured=settings.annual_leave_settlement_date
+    if(!configured||!validISODate(configured))throw new Error('請先至設定頁設定特休結算日，才能使用「今年度」匯出。')
+    const settlement=parseSettlement(configured,today),cycle=getCurrentLeaveCycle(today,settlement.month,settlement.day);startDate=cycle.startDate;endDate=cycle.endDate
+  }
+  const selected=snapshot.records.filter(record=>scope==='all'||record.workDate>=startDate!&&record.workDate<=endDate!)
+  const report=new Map<ISODate,WorkRecord|undefined>(selected.map(record=>[record.workDate,record]))
+  const tracking=settings.work_tracking_start_date as ISODate|undefined,yesterday=addDays(today,-1),missingStart=(startDate&&tracking?(startDate>tracking?startDate:tracking):tracking),missingEnd=((endDate??today)<yesterday?(endDate??today):yesterday) as ISODate
+  if(missingStart&&missingStart<=missingEnd)for(const date of datesBetween(missingStart,missingEnd)){const reliable=calendar.hasHolidayData(Number(date.slice(0,4)))||calendar.getWorkdayReason(date).source==='SPECIAL_OVERRIDE';if(reliable&&calendar.isWorkday(date)&&!report.has(date))report.set(date,undefined)}
+  if(!report.size)throw new Error('所選期間沒有可匯出的工時紀錄。')
+  const daily:DailyReportRow[]=[...report].sort(([a],[b])=>a.localeCompare(b)).map(([date,record])=>{const required=calendar.standardMinutesFor(date,standardDefault);if(!record)return {date:displayDate(date),dayType:dayLabel(calendar,date),status:'無紀錄',clockIn:'',clockOut:'',lunch:formatMinutes(0),actual:formatMinutes(0),standard:formatMinutes(required),overtime:formatMinutes(0),shortfall:formatMinutes(required),note:''};const actual=calculateWorkMinutes(record),difference=actual-required;return {date:displayDate(date),dayType:dayLabel(calendar,date),status:'已登錄',clockIn:record.clockIn??'',clockOut:record.clockOut??'',lunch:formatMinutes(rawMinutes(record)-actual),actual:formatMinutes(actual),standard:formatMinutes(required),overtime:formatMinutes(Math.max(difference,0)),shortfall:formatMinutes(Math.max(-difference,0)),note:record.note}})
+  const last=snapshot.ledger.at(-1),comp=last?.compBalance??0,annual=last?.annualBalance??0,summary:SummaryRow[]=[]
+  if(scope==='all')summary.push({item:'全部紀錄',value:formatMinutes(selected.reduce((sum,row)=>sum+calculateWorkMinutes(row),0)),attendance:selected.length,overtime:'',shortfall:''})
+  else{
+    const totals=daily.reduce((sum,row)=>({actual:sum.actual+parseFormatted(row.actual),attendance:sum.attendance+(row.status==='已登錄'&&parseFormatted(row.actual)>0?1:0),overtime:sum.overtime+parseFormatted(row.overtime),shortfall:sum.shortfall+parseFormatted(row.shortfall)}),{actual:0,attendance:0,overtime:0,shortfall:0})
+    summary.push({item:'年度期間',value:`${displayDate(startDate!)} ～ ${displayDate(endDate!)}`,attendance:'',overtime:'',shortfall:''},{item:'總工時',value:formatMinutes(totals.actual),attendance:totals.attendance,overtime:formatMinutes(totals.overtime),shortfall:formatMinutes(totals.shortfall)},{item:'平均每日工時',value:formatMinutes(totals.attendance?Math.round(totals.actual/totals.attendance):0),attendance:'',overtime:'',shortfall:''})
+    const calculationStart=tracking&&tracking>startDate!?tracking:startDate!;let year=Number(startDate!.slice(0,4)),month=Number(startDate!.slice(5,7));for(let index=0;index<12;index++){const monthly=summarizeMonth(selected,calendar,{year,month,dailyStandardMinutes:standardDefault,calculationStartDate:calculationStart,today});summary.push({item:`${year}/${String(month).padStart(2,'0')}`,value:formatMinutes(monthly.workMinutes),attendance:monthly.attendanceDays,overtime:formatMinutes(monthly.overtimeMinutes),shortfall:formatMinutes(monthly.shortfallMinutes)});if(++month===13){month=1;year++}}
+  }
+  summary.push({item:'目前補休餘額',value:formatMinutes(comp),attendance:'',overtime:'',shortfall:''},{item:'目前特休餘額',value:formatMinutes(annual),attendance:'',overtime:'',shortfall:''})
+  const leave:LeaveReportRow[]=[{date:'年度特休總量',type:formatMinutes(Number(settings.annual_leave_total_minutes||0)),source:'',target:'',minutes:'',note:''},{date:'目前特休餘額',type:formatMinutes(annual),source:'',target:'',minutes:'',note:''},{date:'目前補休餘額',type:formatMinutes(comp),source:'',target:'',minutes:'',note:''},{date:'特休結算日',type:settings.annual_leave_settlement_date??'',source:'',target:'',minutes:'',note:''},{date:'補休結算日',type:settings.comp_leave_settlement_date??'',source:'',target:'',minutes:'',note:''},{date:'補休結算方式',type:settings.comp_settlement_mode||'ANNUAL',source:'',target:'',minutes:'',note:''}]
+  const leaveTypes=new Set(['LEAVE_CONVERSION','REVERSAL','ANNUAL_LEAVE_GRANT','ANNUAL_LEAVE_SETTLEMENT','COMP_LEAVE_SETTLEMENT']);for(const entry of snapshot.ledger)if(leaveTypes.has(entry.transactionType))leave.push({date:displayDate(entry.entryDate),type:entry.transactionType,source:entry.sourceLeaveType??'',target:entry.targetLeaveType??'',minutes:entry.sourceMinutes??0,note:entry.note||entry.reason})
+  const cycleText=(configured:string|undefined)=>{if(!configured)return '';const parsed=parseSettlement(configured,today),cycle=getCurrentLeaveCycle(today,parsed.month,parsed.day);return `${displayDate(cycle.startDate)} ～ ${displayDate(cycle.endDate)}`}
+  const config:ConfigReportRow[]=[{item:'每日標準工時',value:formatMinutes(standardDefault)},{item:'午休開始',value:settings.lunch_break_start||'12:00'},{item:'午休結束',value:settings.lunch_break_end||'13:00'},{item:'工時不足扣除順序',value:settings.leave_deduction_priority||'COMP_TIME_FIRST'},{item:'本年度特休核給時數',value:formatMinutes(Number(settings.annual_leave_total_minutes||0))},{item:'特休結算日',value:settings.annual_leave_settlement_date||''},{item:'補休結算日',value:settings.comp_leave_settlement_date||''},{item:'補休結算方式',value:settings.comp_settlement_mode||'ANNUAL'},{item:'每月補休累計上限',value:formatMinutes(Number(settings.comp_monthly_cap_minutes||2400))},{item:'補休折現時薪',value:money(Number(settings.comp_cash_hourly_rate_cents||0))},{item:'目前特休年度',value:cycleText(settings.annual_leave_settlement_date)},{item:'目前補休年度',value:cycleText(settings.comp_leave_settlement_date)}]
+  const settlements:CompSettlementReportRow[]=[...snapshot.settlements].sort((a,b)=>a.year-b.year||a.month-b.month).map(row=>({month:`${row.year}-${String(row.month).padStart(2,'0')}`,mode:'MONTHLY',preMonthly:formatMinutes(row.preMonthlyBalance),annualBefore:formatMinutes(row.annualBalanceBefore),cap:formatMinutes(row.monthlyCapMinutes),transfer:formatMinutes(row.transferToAnnualMinutes),cashMinutes:formatMinutes(row.cashMinutes),rate:money(row.cashHourlyRateCents),amount:money(row.cashAmountCents),monthlyAfter:formatMinutes(row.monthlyBalanceAfter),annualAfter:formatMinutes(row.annualBalanceAfter),total:formatMinutes(row.monthlyBalanceAfter+row.annualBalanceAfter),annualDate:settings.comp_leave_settlement_date||'',annualOccurred:row.annualSettlementOccurred?'是':'否'}))
+  const sheets:XlsxSheet[]=[{name:'每日紀錄',headers:['日期','日期類型','狀態','上班時間','下班時間','午休扣除','實際工時','標準工時','超時','不足','備註'],rows:daily.map(row=>Object.values(row)),widths:[16,16,16,16,16,16,16,16,16,16,28]},{name:'統計摘要',headers:['項目','值','出勤天數','超時','不足'],rows:summary.map(row=>[row.item,row.value,row.attendance,row.overtime,row.shortfall])},{name:'假別資料',headers:['日期','類型','來源','目的','分鐘數','備註'],rows:leave.map(row=>[row.date,row.type,row.source,row.target,row.minutes,row.note]),widths:[16,22,16,16,16,28]},{name:'設定摘要',headers:['項目','值'],rows:config.map(row=>[row.item,row.value]),widths:[24,30]},{name:'補休結算',headers:['月份','結算模式','月底前月補休','月底前年補休','每月補休上限','轉入年補休','超額折現補休','折現時薪','折現金額','月底後月補休','月底後年補休','目前總補休','年度結算日','是否發生年度結算'],rows:settlements.map(row=>Object.values(row))}]
+  return {scope,startDate,endDate,filename:exportFilename(scope,today,startDate,endDate),daily,summary,leave,config,settlements,sheets}
+}
+function parseFormatted(value:string){const match=value.match(/(\d+) 小時 (\d+) 分/);return match?Number(match[1])*60+Number(match[2]):0}

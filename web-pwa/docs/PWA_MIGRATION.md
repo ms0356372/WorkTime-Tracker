@@ -216,4 +216,30 @@ Conversions and reversals are MANUAL events ordered by local transaction datetim
 7. Press F5 and confirm the restored state remains.
 8. Repeat backup and restore while offline.
 
-Phase 9 Excel / XLSX export remains **INTENTIONALLY DEFERRED**. Login, Supabase, cloud sync, remote backup, and upload are also out of scope.
+## Phase 9 — Excel / XLSX export (DONE)
+
+The Home page exports either all reportable records or the current annual-leave cycle. “今年度” is settlement-cycle based (inclusive start/end), not January through December, and is rejected until a valid annual-leave settlement date exists. Filenames use the browser's local date for all-scope export and exact cycle boundaries for annual export.
+
+The browser-only writer emits a true OOXML workbook using inline UTF-8 strings and the existing offline ZIP adapter. Its five sheets are:
+
+1. `每日紀錄` — 日期、日期類型、狀態、上班時間、下班時間、午休扣除、實際工時、標準工時、超時、不足、備註。
+2. `統計摘要` — 項目、值、出勤天數、超時、不足；annual scope includes 12 consecutive cross-calendar-year months.
+3. `假別資料` — 日期、類型、來源、目的、分鐘數、備註；summary rows plus conversion, reversal, annual grant/settlement, and comp settlement events.
+4. `設定摘要` — 項目、值；work/lunch/deduction/leave/comp policy and distinct current annual/comp cycles.
+5. `補休結算` — the 14 Android/Python columns, sourced from authoritative Phase 6 monthly settlement rows with exact integer-cent cash values.
+
+Export is read-only and `.xlsx` is never accepted by Phase 8 Restore. Every sheet freezes row 1, filters its header, uses approximately 16-character columns, and applies a bold `#D9EAF7` header. Generation and Blob download remain available offline.
+
+### Phase 9 manual browser / Microsoft Excel QA
+
+1. Create several ordinary work records.
+2. Create one holiday-work record.
+3. Leave one past normal workday without a record.
+4. Create a Comp → Annual conversion and its reversal.
+5. Use MONTHLY mode and ensure at least one completed settlement exists.
+6. On Home choose `全部紀錄`, press `匯出 Excel`, and open the download in Microsoft Excel.
+7. Confirm exactly five sheets, readable Traditional Chinese/Unicode, calendar types, the missing row, both audit events, and settlement values.
+8. Choose `今年度`, export again, and confirm the filename/cycle and that out-of-cycle records are absent.
+9. Disconnect networking and confirm another export can be generated and downloaded.
+
+Phase 10 release parity QA, installation/deployment, production icon polish, cross-browser/device checks, and Android screenshot comparison remain deferred. Login, Supabase, cloud sync, remote backup, server-side export, and user-data upload remain out of scope.
