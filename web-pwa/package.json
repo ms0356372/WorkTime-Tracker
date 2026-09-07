@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:pages": "tsc -b && vite build --mode github-pages",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:pages": "node verify_pages_build.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.11",

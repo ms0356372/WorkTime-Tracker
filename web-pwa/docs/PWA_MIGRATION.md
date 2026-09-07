@@ -151,6 +151,54 @@ PWA 自有 JSON/ZIP backup 將包含 `formatName`、`backupFormatVersion`、`dat
 
 `npm run dev` 提供 Vite development server；service worker 的完整離線行為應以 production `npm run build && npm run preview` 驗證。Skeleton 中尚未可用的 action 明確 disabled 或標示「尚未實作」，不製造假資料、不宣稱 DONE。
 
+## GitHub Pages Deployment
+
+### 正式網址與一次性設定
+
+本專案是 GitHub **Project Pages**，正式 HTTPS 網址為：
+
+<https://ms0356372.github.io/WorkTime-Tracker/>
+
+Repository owner 第一次啟用時，請前往 **Settings → Pages → Build and deployment → Source**，選擇 **GitHub Actions**。這項 repository 設定只需做一次，workflow 不會自行假裝變更此設定。若未來重新命名 repository，必須同步修改 `vite.config.ts` 的 Pages base path。
+
+日後的發布流程是：修改程式、PR merge 至 `main`、`Deploy WorkTime PWA to GitHub Pages` workflow 自動測試及建置、GitHub Pages 發布。PWA 的 `autoUpdate` 機制會在使用者下次開啟時取得新版。重大更新前可先到 **設定 → 完整備份** 保存資料，但這不是更新的必要條件。
+
+一般本機開發與建置維持 root base：
+
+```sh
+npm run dev
+npm run build
+npm run preview
+```
+
+只有 Pages artifact 使用 repository sub-path build：
+
+```sh
+npm run build:pages
+npm run verify:pages
+```
+
+此模式的 Vite base、manifest `start_url` 與 manifest `scope` 均為 `/WorkTime-Tracker/`；一般 build 均為 `/`。Service Worker 也因此只控制 project path。第一次離線使用前仍需連線下載 app shell 並完成 Service Worker 安裝。
+
+### 安裝與資料隱私
+
+- **Android**：用 Chrome 開啟正式網址，從瀏覽器選單選擇「安裝應用程式」或「加到主畫面」。
+- **iPhone**：用 Safari 開啟正式網址，點「分享」後選擇「加入主畫面」。
+- 請固定使用上述 hostname 與 project URL；IndexedDB 依 origin 隔離，不同 hostname 不會共享資料。
+
+GitHub Pages 與 Actions 只處理 HTML、CSS、JavaScript、icons 與靜態假日 JSON。使用者的 WorkRecords、Settings、Ledger 與 Backup data 仍只存在該瀏覽器裝置的 IndexedDB；workflow 不會匯出 IndexedDB，也不會上傳 `.worktimebackup`、Excel 或其他個人資料。目前沒有 Cloud Sync，因此電腦與手機是不同資料庫。需要轉移時，請在電腦執行 **設定 → 完整備份**，將 `.worktimebackup` 傳至手機，再於手機執行 **設定 → 還原備份**。
+
+### Merge 後人工 QA
+
+1. 在 GitHub **Actions** 開啟 `Deploy WorkTime PWA to GitHub Pages`，確認 `build` 與 `deploy` 成功。
+2. 在 **Settings → Pages** 確認 Source 是 **GitHub Actions**，然後開啟正式網址。
+3. 確認首頁可見，切換紀錄、日曆、分析、設定，再重新整理；本 App 使用單一文件內的 React state tab navigation，沒有 path route，因此不需要 404 redirect 或 deep-link fallback。
+4. 新增測試工時，關閉後重開並確認資料仍在；分別測試 Backup 與 Excel 下載。
+5. Android Chrome 加到主畫面，從主畫面啟動並確認 standalone；完成首次載入後，開飛航模式再次啟動以驗證既有 cache，最後重新連網。
+6. iPhone Safari 加到主畫面，從主畫面啟動、新增資料、關閉後重開，確認資料仍在。
+
+Android、iPhone、Microsoft Excel 與正式 Pages runtime 仍須在 merge/deploy 後以相應實機完成上述 QA；本機 build success 不等同實機或正式 deployment 驗證。
+
 
 ## Phase 4 acceptance note
 
