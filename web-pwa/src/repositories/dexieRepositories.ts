@@ -23,6 +23,7 @@ export class DexieWorkRecordRepository implements WorkRecordRepository {
 
     return this.database.workRecords.put(value)
   }
+  all():Promise<WorkRecord[]>{return this.database.workRecords.orderBy('workDate').toArray()}
 
   getByDate(date: string): Promise<WorkRecord | undefined> {
     return this.database.workRecords.where('workDate').equals(date).first()
@@ -82,6 +83,20 @@ export class DexieLedgerRepository implements LedgerRepository {
   add(entry: LedgerEntry): Promise<number> {
     return this.database.ledger.add(entry)
   }
+  getSystem():Promise<LedgerEntry[]>{return this.database.ledger.where('ledgerOrigin').equals('SYSTEM').sortBy('transactionDatetime')}
+  getManual():Promise<LedgerEntry[]>{return this.database.ledger.where('ledgerOrigin').equals('MANUAL').sortBy('transactionDatetime')}
+  async replaceSystem(entries:LedgerEntry[]):Promise<void>{
+    await this.database.transaction('rw',this.database.ledger,async()=>{
+      await this.database.ledger.where('ledgerOrigin').equals('SYSTEM').delete()
+      const manual=new Map((await this.database.ledger.where('ledgerOrigin').equals('MANUAL').toArray()).map(x=>[x.id,x]))
+      for(const entry of entries){
+        if(entry.ledgerOrigin==='MANUAL'&&entry.id&&manual.has(entry.id))await this.database.ledger.update(entry.id,{compBalance:entry.compBalance,annualBalance:entry.annualBalance,monthlyCompBalance:entry.monthlyCompBalance,annualCompBalance:entry.annualCompBalance})
+        else if(entry.ledgerOrigin==='SYSTEM')await this.database.ledger.add({...entry,id:undefined})
+      }
+    })
+  }
+  async currentBalances(){const last=(await this.all()).at(-1);return {compBalanceMinutes:last?.compBalance??0,annualBalanceMinutes:last?.annualBalance??0}}
+  entriesForRange(start:string,end:string):Promise<LedgerEntry[]>{return this.database.ledger.where('entryDate').between(start,end,true,true).sortBy('transactionDatetime')}
 }
 
 export class DexieSpecialDateRepository implements SpecialDateRepository {

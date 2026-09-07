@@ -1,6 +1,6 @@
-# WorkTime Tracker PWA Migration（Phase 4）
+# WorkTime Tracker PWA Migration（Phase 5）
 
-## Phase 4 implementation status
+## Phase 5 implementation status
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -13,7 +13,7 @@
 | Official holiday update/status | IMPLEMENTED | Settings reloads packaged annual data, shows loaded years/last success, supports validated JSON import, and preserves cache on failure. Live government-network sync remains deferred. |
 | Calendar month classification | IMPLEMENTED | Each date shows work/non-work classification, source label/note, and recorded minutes. |
 | Monthly analysis | IMPLEMENTED | Month navigation, total/attendance/rounded average/overtime/shortfall/holiday work/scheduled/missing counts. Future/today dates are not missing. |
-| Ledger, leave deduction and leave balances | NOT IMPLEMENTED | Analysis does not deduct comp or annual leave and the dashboard hides fabricated balances. |
+| Ledger, leave deduction and leave balances | IMPLEMENTED | Deterministic SYSTEM replay preserves MANUAL events; Home/Analysis show real current balances. |
 | Cloud/Auth/Supabase, export, backup/restore | NOT IMPLEMENTED | Explicitly outside Phase 3. |
 | Windows local scripts | IMPLEMENTED | `verify_pwa.bat` checks tools, installs, tests, builds and validates output; run/build-only scripts fail fast. |
 
@@ -54,7 +54,7 @@ Missing-workday safety follows Python: a normal weekday is only marked missing w
 
 1. `TransactionType` 完整事件集合：work earn/deduction、missing-workday deduction、monthly settlement、annual grant/settlement、comp annual settlement、comp monthly transfer/cash、conversion、reversal、adjustment。
 2. Ledger 是 audit event，不是單一 balance 欄位。每一事件保留 changes、balance-after、來源紀錄、來源/目的假別、transaction/created timestamps、origin、reversal link，以及 monthly/annual comp snapshots。
-3. 不足扣除尊重 `COMP_TIME_FIRST` 或 `ANNUAL_LEAVE_FIRST`；餘額不足的未覆蓋分鐘仍是 shortfall，不能製造負假別餘額。
+3. 不足扣除尊重 `COMP_TIME_FIRST` 或 `ANNUAL_LEAVE_FIRST`；依最新 Python legacy behavior，兩者皆不足時未覆蓋分鐘繼續扣最後順位假別，因此允許負餘額。
 4. Monthly comp policy 具 `effective_from` history。月底 `pre_monthly_balance` 在 cap 內轉入 annual bucket；超過 cap 為 cash minutes；折現金額全程 cents/integer arithmetic。`comp_monthly_settlements` 保存 before/after、cap、transfer、cash、rate、amount 與同月是否年度結算。
 5. 月分析只選該 calendar month。年分析以 UI 所選月份的 `year`，不可固定 today.year。平均為總分鐘除出勤日並依 Python `round` 取整數；假日/休息日實作依 calendar standard=0，因此工作分鐘列假日工作與 overtime。
 
@@ -157,3 +157,12 @@ PWA 自有 JSON/ZIP backup 將包含 `formatName`、`backupFormatVersion`、`dat
 The record mutation boundary owns repository save/delete, one refresh event, and deletion confirmation; it intentionally contains no Phase 5 ledger rebuild. Dexie v2 upgrades legacy overrides in place without clearing IndexedDB. Packaged holiday writes validate ISO calendar dates, matching year, unique dates, and nonblank names before an atomic annual replacement. The service worker precaches packaged JSON. Accessibility and 360/390/768/desktop responsive rules were reviewed programmatically. Ledger, comp/annual leave deduction and settlement, conversion/reversal, Backup/Restore, Excel, Supabase, login, and cloud sync remain **INTENTIONALLY DEFERRED**.
 
 **SCREENSHOT QA NOT AVAILABLE:** this task supplied no Android screenshots, so no visual screenshot-parity claim is made.
+
+
+## Phase 5 closure (2026-09-07)
+
+Phase 5 is **DONE / MATCH** for deterministic Ledger replay, WorkRecord earning/deduction, missing-workday events, deduction priority, annual entitlement/cycles/grants/settlement, activation safety, and current total comp/annual balances. Replay builds SYSTEM events in memory, merges preserved MANUAL audit payloads, sorts by transaction datetime plus stable tie-breaks, recomputes every post-event snapshot, and atomically replaces only SYSTEM rows. Existing Dexie schema v2 already contains the required stores/indexes, so no schema upgrade or destructive migration is needed.
+
+The current annual cycle is persisted uniquely by `[startDate+endDate]`; settlement-day `02-29` clamps to February 28 in non-leap years. First activation is stored in `appMetadata`, preventing historical grant/settlement backfill. Settings changes, record mutations, special dates, and holiday replacement trigger a full rebuild and one Ledger refresh signal.
+
+Phase 6 monthly/annual comp buckets, monthly cap/transfer/cash-out, hourly rate and settlement history remain **INTENTIONALLY DEFERRED**. Phase 7 conversion/reversal UI remains deferred; MANUAL ledger entries are nevertheless preserved for that future work.
