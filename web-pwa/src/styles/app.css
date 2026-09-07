@@ -45,15 +45,42 @@ button:active:not(:disabled){background:#064f48;transform:translateY(1px)}
 .backup-picker input[type="file"]{width:100%;max-width:100%}
 .confirm-dialog>*{min-width:0;max-width:100%;overflow-wrap:anywhere}
 
+/* Settings grids retain paired fields on normal phones while all intrinsic-size
+   constraints are contained within this page. */
+.settings-page,
+.settings-page .card,
+.settings-page form,
+.settings-page details,
+.settings-page summary,
+.settings-page .form-grid,
+.settings-page .form-grid>*,
+.settings-page .balance-hints,
+.settings-page .balance-hints>*,
+.settings-page .settings-actions,
+.settings-page .form-actions,
+.settings-page .row-actions,
+.settings-page .backup-preview{min-width:0;max-width:100%}
+.settings-page .form-grid,
+.settings-page .balance-hints{grid-template-columns:repeat(2,minmax(0,1fr))}
+.settings-page input,
+.settings-page select,
+.settings-page textarea{display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+.settings-page .wide{grid-column:1/-1}
+.settings-page .backup-picker input[type="file"]{width:100%;min-width:0;max-width:100%}
+.settings-page .backup-preview,
+.settings-page .backup-preview *{overflow-wrap:anywhere}
+
 @media(max-width:600px){
-  .form-grid,.balance-hints{grid-template-columns:minmax(0,1fr)}
-  .wide{grid-column:auto}
-  .form-actions,.settings-actions{align-items:stretch}
-  .form-actions button,.settings-actions button{flex-basis:100%;width:100%;max-width:100%}
-  .list-row{align-items:flex-start;flex-wrap:wrap}
-  .list-row>div{flex:1 1 100%}
-  .row-actions{width:100%;min-width:0}
-  .row-actions button{flex:1 1 0;min-width:0}
+  .settings-page .form-actions,.settings-page .settings-actions{align-items:stretch}
+  .settings-page .form-actions button,.settings-page .settings-actions button{flex-basis:100%;width:100%;max-width:100%}
+  .settings-page .list-row{align-items:flex-start;flex-wrap:wrap}
+  .settings-page .list-row>div{flex:1 1 100%}
+  .settings-page .row-actions{width:100%;min-width:0}
+  .settings-page .row-actions button{flex:1 1 0;min-width:0}
+}
+@media(max-width:340px){
+  .settings-page .form-grid,.settings-page .balance-hints{grid-template-columns:minmax(0,1fr)}
+  .settings-page .wide{grid-column:auto}
 }
 
 .prepared-file{min-width:0;max-width:100%;margin-top:14px;padding:14px;border:1px solid #c8d8d4;border-radius:12px}
