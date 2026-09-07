@@ -116,7 +116,10 @@ export class DexieHolidayRepository implements HolidayRepository {
   }
 
   get(date: string): Promise<OfficialHoliday | undefined> {
-    return this.database.officialHolidays.get(date)
+    return this.database.officialHolidays
+      .where('holidayDate')
+      .equals(date)
+      .first()
   }
 
   async replaceYear(year: number, values: OfficialHoliday[]): Promise<void> {
