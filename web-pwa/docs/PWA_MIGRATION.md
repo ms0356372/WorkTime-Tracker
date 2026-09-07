@@ -291,3 +291,7 @@ Export is read-only and `.xlsx` is never accepted by Phase 8 Restore. Every shee
 9. Disconnect networking and confirm another export can be generated and downloaded.
 
 Phase 10 release parity QA, installation/deployment, production icon polish, cross-browser/device checks, and Android screenshot comparison remain deferred. Login, Supabase, cloud sync, remote backup, server-side export, and user-data upload remain out of scope.
+
+## V1.3.0 migration note
+
+Daily Comp-Time Earning Cap defaults to disabled (`comp_daily_cap_enabled=false`, `comp_daily_cap_minutes=720`), preserving every legacy calculation. The fields are non-indexed properties on the existing comp policy store, so Dexie remains schema version 3. PWA backup format remains version 2 and serializes per-cycle daily-cap policy metadata only under `pwa_extensions.comp_daily_cap_policies`; backups without that extension normalize to disabled/720.
