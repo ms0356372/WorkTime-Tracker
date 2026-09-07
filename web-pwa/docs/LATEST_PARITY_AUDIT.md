@@ -51,7 +51,7 @@ The source implements daily record CRUD/edit mode; overlap-only lunch deduction 
 | Monthly analysis | MATCH | Selected month, calendar standard, missing shortfall and holiday work. |
 | Annual analysis | PARTIAL | Work and attendance now match; leave metrics await ledger. |
 | Comp leave / annual leave / ledger / settlements / cash-out / conversion / reversal | INTENTIONALLY DEFERRED | Models/stores are foundation only; no functional claim is made. |
-| Backup / Excel | INTENTIONALLY DEFERRED | Mappings exist, implementation does not. |
+| Backup / Excel | MATCH | Phase 8 validated backup/restore and Phase 9 browser-only five-sheet XLSX are complete. |
 
 ## Outdated / regression findings
 
@@ -127,4 +127,18 @@ Dexie remains schema v2 because the ledger already indexed `reversalOfId` and co
 - PRE-RESTORE SAFETY BACKUP = **DONE / MATCH**
 - MANUAL conversion/reversal identity and Unicode source data are preserved; SYSTEM ledger and Phase 6 settlements are rebuilt deterministically.
 - Android legacy `monthly_settlements` are preserved losslessly in a schema-v3 compatibility store, separate from PWA derived `compMonthlySettlements`.
-- Excel / XLSX Export (Phase 9) = **INTENTIONALLY DEFERRED**.
+- Excel / XLSX Export (Phase 9) = **DONE / MATCH**.
+
+## Phase 9 Excel parity
+
+- EXCEL EXPORT = **DONE / MATCH**
+- ALL SCOPE = **DONE / MATCH**
+- LEAVE YEAR SCOPE = **DONE / MATCH**
+- FIVE SHEETS = **DONE / MATCH**
+- OFFLINE EXPORT = **DONE / MATCH**
+
+The browser now creates a real OOXML `.xlsx` locally, with no upload, server, Python runtime, or new npm dependency. The small writer ports the Python `minimal_xlsxwriter` concept and reuses the Phase 8 ZIP adapter. It emits exactly `每日紀錄`, `統計摘要`, `假別資料`, `設定摘要`, and `補休結算`, each with a bold pale-blue header, frozen first row, header auto-filter, and explicit widths.
+
+One read-only Dexie transaction captures records, settings, Ledger, calendar inputs, and authoritative monthly settlements. Daily work uses the shared calculator and Calendar service; reliable missing workdays honor tracking start, scope, yesterday, and official/special calendar coverage. Current leave balances come from the final Ledger snapshot. Conversion and reversal remain separate audit rows, while `WORKTIME_EARN` is excluded from leave details. Settlement money is only formatted from stored integer cents.
+
+Phase 10 remains deferred: release parity QA, install/deployment readiness, production icon work, supported-browser/device coverage, and supplied Android screenshot comparison. Supabase, login, cloud sync, remote backup, and server export remain out of scope.
