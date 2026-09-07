@@ -92,3 +92,12 @@ Delete confirmations include the record date. User-readable load/save/delete fai
 **SOURCE MISMATCH:** current Python Settings exposes the technical two-way choice “上班日 / 非上班日”, while this Phase explicitly requires three user-facing categories. The PWA therefore keeps the Python `WORKDAY` / `NON_WORKDAY` core and adds only non-destructive presentation metadata as required by this Phase.
 
 **SCREENSHOT QA NOT AVAILABLE:** no current Android screenshot was supplied in this task payload or found in the repository. Automated production preview was checked, but Android visual comparison cannot honestly be claimed.
+
+
+## Phase 5 reconciliation (2026-09-07)
+
+**DONE / MATCH:** deterministic persisted Ledger core; SYSTEM/MANUAL replay; WorkRecord and missing-workday earning/deduction; both deduction priorities including Python's negative-last-priority legacy deficit; annual entitlement, settlement date, cycle persistence, leap-day clamp, activation-safe grant/settlement; and real current comp/annual balances on Home, Analysis, and Settings. Core arithmetic remains integer minutes.
+
+There is no source/test mismatch for uncovered deficits: current `LeaveBalanceService.deduct_leave()` and its tests require charging the remaining deficit to the last-priority leave type, which can become negative. Calendar classification is shared (special override > official holiday > weekday), and today/future are excluded from automatic missing-day events.
+
+**INTENTIONALLY DEFERRED (Phase 6):** monthly versus annual comp mode, buckets, cap, transfer, cash-out/rate, settlement policy/history, and annual comp settlement. **INTENTIONALLY DEFERRED (Phase 7+):** conversion/reversal UI and audit history, backup/restore, Excel, Supabase/cloud sync. Dexie remains at schema v2 because all Phase 5 stores and indexes were already safely present.
