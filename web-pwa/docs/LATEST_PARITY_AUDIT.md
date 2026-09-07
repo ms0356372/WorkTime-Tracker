@@ -142,3 +142,10 @@ The browser now creates a real OOXML `.xlsx` locally, with no upload, server, Py
 One read-only Dexie transaction captures records, settings, Ledger, calendar inputs, and authoritative monthly settlements. Daily work uses the shared calculator and Calendar service; reliable missing workdays honor tracking start, scope, yesterday, and official/special calendar coverage. Current leave balances come from the final Ledger snapshot. Conversion and reversal remain separate audit rows, while `WORKTIME_EARN` is excluded from leave details. Settlement money is only formatted from stored integer cents.
 
 Phase 10 remains deferred: release parity QA, install/deployment readiness, production icon work, supported-browser/device coverage, and supplied Android screenshot comparison. Supabase, login, cloud sync, remote backup, and server export remain out of scope.
+
+## V1.3.0 — Daily Comp-Time Earning Cap / Annual Excess Settlement
+
+- 補休政策新增預設關閉的每日計算上限；政策沿用補休週期起日作為 `effectiveFrom`，同週期修改會替換政策並 deterministic replay，已完成週期維持歷史政策。
+- 超過每日上限的分鐘建立獨立 `COMP_DAILY_EXCESS_ACCRUAL` SYSTEM ledger event，不進入任何補休 balance；週期結束後於 23:59:30 建立 `COMP_ANNUAL_EXCESS_CASH_SETTLEMENT`，沿用補休折現時薪與 integer-cent rounding。
+- Home、Analysis、Settings 共用目前週期年度待結算摘要；備份格式仍為 v2，新政策欄位置於 `pwa_extensions.comp_daily_cap_policies`，Android core columns 不變。
+- Excel 維持五個 worksheets，設定摘要顯示每日上限，補休結算包含年度每日超額結算。

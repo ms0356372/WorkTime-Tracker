@@ -11,6 +11,7 @@ import type {
 import { nextMonth } from '../utils/date'
 import { normalizeOverride } from '../services/specialDateService'
 import { validateHolidayYear } from '../services/holidayService'
+import {normalizeCompPolicy} from '../services/ledgerService'
 
 export class DexieWorkRecordRepository implements WorkRecordRepository {
   constructor(private database: WorkTimeDatabase) {}
@@ -121,7 +122,7 @@ export class DexieLedgerRepository implements LedgerRepository {
 
 export class DexieCompPolicyRepository implements CompPolicyRepository{
   constructor(private database:WorkTimeDatabase){}
-  async history(){return this.database.compPolicies.orderBy('effectiveFrom').toArray()}
+  async history(){return (await this.database.compPolicies.orderBy('effectiveFrom').toArray()).map(normalizeCompPolicy)}
   async current(){return (await this.history()).at(-1)}
   async policyOn(date:string){return (await this.history()).filter(x=>x.effectiveFrom<=date).at(-1)}
   async save(policy:CompSettlementPolicy){const old=await this.database.compPolicies.where('effectiveFrom').equals(policy.effectiveFrom).first();return this.database.compPolicies.put(old?{...policy,id:old.id}:policy)}
