@@ -8,15 +8,16 @@ import { SettingsPage } from './pages/SettingsPage'
 import type { WorkRecord } from './models/domain'
 import { DATA_RESTORED } from './services/backupService'
 import { ledgerEvents } from './services/ledgerService'
+import {completeRecordEdit} from './services/editNavigationService'
 
 export default function App() {
   const now=new Date(),[active,setActive]=useState<PageKey>('home'),[editDate,setEditDate]=useState<string>(),[editOrigin,setEditOrigin]=useState<CalendarViewState>(),[calendarView,setCalendarView]=useState<CalendarViewState>({year:now.getFullYear(),month:now.getMonth()+1}),[dataVersion,setDataVersion]=useState(0)
   useEffect(()=>{const refresh=()=>setDataVersion(x=>x+1);ledgerEvents.addEventListener(DATA_RESTORED,refresh);return()=>ledgerEvents.removeEventListener(DATA_RESTORED,refresh)},[])
   function edit(record:WorkRecord,origin:CalendarViewState){setEditDate(record.workDate);setEditOrigin(origin);setActive('records')}
-  function editSaved(){if(!editOrigin)return;setCalendarView(editOrigin);setEditOrigin(undefined);setActive('calendar')}
+  function finishEdit(){const destination=completeRecordEdit(editOrigin);setEditOrigin(undefined);if(destination.page==='calendar'){setCalendarView(destination.view);setActive('calendar')}}
   function navigate(page:PageKey){setEditDate(undefined);setEditOrigin(undefined);setActive(page)}
   let page
-  if(active==='records')page=<RecordsPage editDate={editDate} onEditLoaded={()=>setEditDate(undefined)} onEditSaved={editOrigin?editSaved:undefined} onEditCancelled={()=>setEditOrigin(undefined)}/>
+  if(active==='records')page=<RecordsPage editDate={editDate} onEditLoaded={()=>setEditDate(undefined)} onEditSaved={editOrigin?finishEdit:undefined} onEditCancelled={editOrigin?finishEdit:undefined}/>
   else if(active==='calendar')page=<CalendarPage initialView={calendarView} onViewChange={view=>setCalendarView(view)} onScrollRestored={()=>setCalendarView(view=>({...view,scrollY:undefined}))} onEdit={edit}/>
   else if(active==='analysis')page=<AnalysisPage/>
   else if(active==='settings')page=<SettingsPage/>
