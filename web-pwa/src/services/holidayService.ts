@@ -24,7 +24,7 @@ export function parseHolidayPackage(input:unknown,syncedAt:string):{year:number;
 }
 export async function loadPackagedHolidayYear(year:number,repository:HolidayRepository,fetcher:typeof fetch=fetch,force=false):Promise<OfficialHoliday[]>{
   const cached=await repository.forYear(year);if(cached.length&&!force)return cached
-  const response=await fetcher(`/data/holidays/${year}.json`);if(!response.ok)throw new Error(`${year} 年套裝假日資料無法載入。`)
+  const response=await fetcher(`${import.meta.env.BASE_URL}data/holidays/${year}.json`);if(!response.ok)throw new Error(`${year} 年套裝假日資料無法載入。`)
   const parsed=parseHolidayPackage(await response.json(),new Date().toISOString())
   if(parsed.year!==year)throw new Error('假日資料年度不符，未更新現有快取。')
   await repository.replaceYear(year,parsed.values);return parsed.values
