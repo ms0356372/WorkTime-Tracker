@@ -5,10 +5,16 @@ import { RecordsPage } from './pages/RecordsPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { AnalysisPage } from './pages/AnalysisPage'
 import { SettingsPage } from './pages/SettingsPage'
+import type { WorkRecord } from './models/domain'
 
-const pages = { home: HomePage, records: RecordsPage, calendar: CalendarPage, analysis: AnalysisPage, settings: SettingsPage }
 export default function App() {
-  const [active, setActive] = useState<PageKey>('home')
-  const Page = pages[active]
-  return <div className="app"><header><div><small>OFFLINE FIRST</small><h1>工時管家</h1></div><span className="status">PWA 0.1.0</span></header><main><Page /></main><BottomNavigation active={active} onChange={setActive}/></div>
+  const [active,setActive]=useState<PageKey>('home'),[editDate,setEditDate]=useState<string>()
+  function edit(record:WorkRecord){setEditDate(record.workDate);setActive('records')}
+  let page
+  if(active==='records')page=<RecordsPage editDate={editDate} onEditLoaded={()=>setEditDate(undefined)}/>
+  else if(active==='calendar')page=<CalendarPage onEdit={edit}/>
+  else if(active==='analysis')page=<AnalysisPage/>
+  else if(active==='settings')page=<SettingsPage/>
+  else page=<HomePage/>
+  return <div className="app"><header><div><small>OFFLINE FIRST</small><h1>工時管家</h1></div><span className="status">PWA 0.1.0</span></header><main>{page}</main><BottomNavigation active={active} onChange={setActive}/></div>
 }

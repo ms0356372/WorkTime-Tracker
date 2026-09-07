@@ -38,6 +38,10 @@ export class DexieWorkRecordRepository implements WorkRecordRepository {
       .sortBy('workDate')
   }
 
+  recordsForYear(year: number): Promise<WorkRecord[]> {
+    return this.database.workRecords.where('workDate').between(`${year}-01-01`, `${year + 1}-01-01`, true, false).toArray()
+  }
+
   async recent(limit = 7): Promise<WorkRecord[]> {
     return this.database.workRecords.orderBy('workDate').reverse().limit(limit).toArray()
   }

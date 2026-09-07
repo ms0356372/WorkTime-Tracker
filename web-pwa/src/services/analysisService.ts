@@ -38,6 +38,11 @@ export function summarizeMonth(records:WorkRecord[], calendar:CalendarService, o
   }}
   return {workMinutes,attendanceDays,averageMinutes:attendanceDays?Math.round(workMinutes/attendanceDays):0,overtimeMinutes,shortfallMinutes,holidayWorkMinutes,scheduledWorkdays,missingWorkdays}
 }
+export function summarizeYear(records:WorkRecord[], year:number){
+  const selected=records.filter((record)=>Number(record.workDate.slice(0,4))===year)
+  const workMinutes=selected.reduce((total,record)=>total+calculateWorkMinutes(record),0)
+  return {workMinutes,attendanceDays:selected.filter((record)=>calculateWorkMinutes(record)>0).length}
+}
 
 /** Backward-compatible basic helper retained for callers that do not have a calendar. */
 export function summarize(records:WorkRecord[]):Omit<Summary,'scheduledWorkdays'|'missingWorkdays'> {let workMinutes=0,overtimeMinutes=0,shortfallMinutes=0,holidayWorkMinutes=0,attendanceDays=0;for(const record of records){const actual=calculateWorkMinutes(record),difference=actual-record.standardMinutes;workMinutes+=actual;if(actual>0)attendanceDays++;overtimeMinutes+=Math.max(difference,0);shortfallMinutes+=Math.max(-difference,0);if(record.workdayType==='假日'||record.workdayType==='休息日')holidayWorkMinutes+=actual}return {workMinutes,attendanceDays,averageMinutes:attendanceDays?Math.round(workMinutes/attendanceDays):0,overtimeMinutes,shortfallMinutes,holidayWorkMinutes}}
