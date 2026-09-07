@@ -22,5 +22,5 @@ export default function App() {
   else if(active==='analysis')page=<AnalysisPage/>
   else if(active==='settings')page=<SettingsPage/>
   else page=<HomePage/>
-  return <div className="app"><header><div><small>OFFLINE FIRST</small><h1>工時管家</h1></div><span className="status">PWA 0.1.0</span></header><main key={dataVersion}>{page}</main><BottomNavigation active={active} onChange={navigate}/></div>
+  return <div className="app"><header><div><small>OFFLINE FIRST</small><h1>工時管家</h1></div><span className="status">PWA 1.0.1</span></header><main key={dataVersion}>{page}</main><BottomNavigation active={active} onChange={navigate}/></div>
 }
