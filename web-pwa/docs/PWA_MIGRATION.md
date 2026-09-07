@@ -166,3 +166,15 @@ Phase 5 is **DONE / MATCH** for deterministic Ledger replay, WorkRecord earning/
 The current annual cycle is persisted uniquely by `[startDate+endDate]`; settlement-day `02-29` clamps to February 28 in non-leap years. First activation is stored in `appMetadata`, preventing historical grant/settlement backfill. Settings changes, record mutations, special dates, and holiday replacement trigger a full rebuild and one Ledger refresh signal.
 
 Phase 6 monthly/annual comp buckets, monthly cap/transfer/cash-out, hourly rate and settlement history remain **INTENTIONALLY DEFERRED**. Phase 7 conversion/reversal UI remains deferred; MANUAL ledger entries are nevertheless preserved for that future work.
+
+## Phase 6 closure (2026-09-07)
+
+Phase 6 is **DONE / MATCH**. A typed comp-policy repository keeps deterministic `effectiveFrom` history, and saving Settings applies the current comp cycle start—not the form-save day. The comp-cycle repository upserts the date-clamped current cycle without deleting source records. Existing Phase 5 databases are upgraded in place by populating these already-present stores; Dexie remains schema v2.
+
+ANNUAL mode routes ordinary comp deltas to the annual bucket and produces no monthly settlements. MONTHLY mode routes positive deltas to monthly comp, consumes monthly before annual for negative comp deltas, and preserves the Python legacy negative annual-comp behavior. Mode transitions normalize the prior total into annual comp, preventing duplication or loss.
+
+Only completed months in the current comp cycle receive deterministic 23:58 transfer events. For `preMonthly`, integer-minute formulas are `transfer=min(max(preMonthly,0),cap)` and `cash=max(preMonthly-cap,0)`; transfer moves a bucket without increasing total. An explicit SYSTEM cash event at 23:58:30 removes excess, with `cashAmountCents=floor((cashMinutes*rateCents+30)/60)`. The derived audit row records pre/before/after balances, policy, cap, transfer, cash, and annual-settlement flag. Annual comp settlement runs last at 23:59:59 and clears both buckets only after cycle end.
+
+Home uses one authoritative current-comp summary and conditionally displays the MONTHLY split. Analysis looks up settlement by the selected year/month. Settings includes mode/date, conditional retained cap/rate inputs, current cycle and split balances, and newest-first monthly history. Ledger SYSTEM events and derived settlements are committed atomically; repeated rebuilds replace rather than append results, while MANUAL rows are preserved.
+
+Phase 7 conversion/reversal and all later portability, export, and cloud features remain **INTENTIONALLY DEFERRED**.

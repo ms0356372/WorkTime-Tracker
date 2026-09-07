@@ -101,3 +101,11 @@ Delete confirmations include the record date. User-readable load/save/delete fai
 There is no source/test mismatch for uncovered deficits: current `LeaveBalanceService.deduct_leave()` and its tests require charging the remaining deficit to the last-priority leave type, which can become negative. Calendar classification is shared (special override > official holiday > weekday), and today/future are excluded from automatic missing-day events.
 
 **INTENTIONALLY DEFERRED (Phase 6):** monthly versus annual comp mode, buckets, cap, transfer, cash-out/rate, settlement policy/history, and annual comp settlement. **INTENTIONALLY DEFERRED (Phase 7+):** conversion/reversal UI and audit history, backup/restore, Excel, Supabase/cloud sync. Dexie remains at schema v2 because all Phase 5 stores and indexes were already safely present.
+
+## Phase 6 reconciliation (2026-09-07)
+
+**DONE / MATCH:** ANNUAL/MONTHLY compensation-leave policy; settlement-date-derived current comp cycle; effective-from-cycle-start policy history; monthly/annual buckets; monthly-first bucket deduction with legacy negative annual-comp deficit; completed-month-only transfer; integer-minute cap; explicit excess cash event with Python-compatible integer-cent rounding; derived monthly settlement history; activation-safe annual comp settlement; and shared Home, Analysis, and Settings summaries.
+
+Replay generates month transfer at 23:58:00, cash settlement at 23:58:30, and annual settlement at 23:59:59. Ledger and monthly settlement replacement share one Dexie transaction, while manual rows and WorkRecords remain untouched. Existing schema v2 already contained all stores and indexes, so Phase 6 requires no database version increase or destructive migration.
+
+**INTENTIONALLY DEFERRED (Phase 7):** Comp ↔ Annual conversion, conversion form/history, and reversal. **INTENTIONALLY DEFERRED (Phase 8+):** Backup/Restore and Android import, Excel export, Supabase, and cloud sync.
